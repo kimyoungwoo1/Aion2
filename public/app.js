@@ -252,7 +252,6 @@ let sanctuaryIsMember = false;
 let activeSanctuaryView = 'schedule';
 let sanctuaryPartyRows = [];
 let sanctuaryPartyCharacters = [];
-let sanctuaryPartyDetails = [];
 const PARTY_MARKS = [['', '징표 없음'], ['1','1'], ['2','2'], ['3','3'], ['4','4'], ['5','5'], ['star','★ 별'], ['skull','☠ 해골'], ['moon','☾ 달']];
 const PARTY_MARK_SYMBOLS = { '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', star:'★', skull:'☠', moon:'☾' };
 function appendMarkOptions(select) {
@@ -595,7 +594,6 @@ async function loadPartyRoster() {
   if (activeSection !== requestedSection) return;
   sanctuaryPartyRows = result.members || [];
   sanctuaryPartyCharacters = result.characters || [];
-  sanctuaryPartyDetails = result.parties || [];
   $('partyMessage').textContent = '';
   renderPartyRoster();
 }
@@ -643,7 +641,7 @@ function renderPartyRoster() {
   const taken = new Set(rows.map(partyPlace).filter(Boolean));
   const heading = document.createElement('div');
   heading.className = 'roster-compact-header';
-  for (const text of ['참여자', '캐릭터 선택', '파티 위치 · 징표 함께 배정']) {
+  for (const text of ['참여자', '캐릭터 선택', '파티 위치 · 징표', '캐릭터 비고']) {
     const item = document.createElement('span'); item.textContent = text; heading.append(item);
   }
   if (rows.length) container.append(heading);
@@ -706,7 +704,30 @@ function renderPartyRoster() {
          partyNumber:p, slotNumber:slot, marker:markSelect.value}, saveAssignment);
     });
     assignmentWrap.append(partySelect, markSelect, saveAssignment);
-    wrap.append(identity, charSelect, assignmentWrap);
+
+    // 비고는 파티에 저장하지 않는다. 성역별 캐릭터 ID에 연결하여 저장한다.
+    // 파티를 바꾸어도 비고가 따라다니며 다른 캐릭터로 변경하면 이전 비고를 섞지 않는다.
+    const noteWrap = document.createElement('div');
+    noteWrap.className = 'character-note-edit';
+    const characterNote = document.createElement('input');
+    characterNote.type = 'text';
+    characterNote.maxLength = 150;
+    characterNote.value = member.character_note || '';
+    characterNote.placeholder = member.character_id ? '예: 1넴 징표 담당' : '캐릭터 연결 후 입력';
+    characterNote.setAttribute('aria-label', `${member.nickname} 캐릭터 비고`);
+    characterNote.disabled = !member.character_id;
+    const saveNote = document.createElement('button');
+    saveNote.type = 'button';
+    saveNote.className = 'secondary small';
+    saveNote.textContent = '비고 저장';
+    saveNote.disabled = !member.character_id;
+    saveNote.setAttribute('aria-label', `${member.nickname} 캐릭터 비고 저장`);
+    saveNote.addEventListener('click', async () => {
+      await updatePartySetting('/api/sanctuary/roster/character-note',
+        {sanctuary:activeSection, nickname:member.nickname, note:characterNote.value}, saveNote);
+    });
+    noteWrap.append(characterNote, saveNote);
+    wrap.append(identity, charSelect, assignmentWrap, noteWrap);
     container.append(wrap);
   }
 
@@ -730,27 +751,7 @@ function renderPartyRoster() {
       const members = rows.filter(r=>Number(r.party_number)===party);
       title.textContent = `${withinForce}파티 · ${members.length}/${PARTY_CAPACITY}명`;
       card.append(title);
-      const existingDetails = sanctuaryPartyDetails.find(p => Number(p.party_number) === party) || {};
-      const partyFields = document.createElement('div');
-      partyFields.className = 'party-edit-fields';
-      const partyNoteWrap = document.createElement('label');
-      partyNoteWrap.textContent = '파티 비고';
-      const partyNote = document.createElement('input');
-      partyNote.type = 'text';
-      partyNote.maxLength = 150;
-      partyNote.placeholder = '예: 1넴 징표 담당';
-      partyNote.value = existingDetails.note || '';
-      partyNote.setAttribute('aria-label', `${partyLabel(party)} 비고`);
-      partyNoteWrap.append(partyNote);
-      const saveParty = document.createElement('button');
-      saveParty.type = 'button';
-      saveParty.className = 'secondary small';
-      saveParty.textContent = '비고 저장';
-      saveParty.addEventListener('click', () => updatePartySetting(
-        '/api/sanctuary/roster/party-details',
-        {sanctuary:activeSection, partyNumber:party, note:partyNote.value}, saveParty));
-      partyFields.append(partyNoteWrap,saveParty);
-      card.append(partyFields);
+      // 파티별 비고 입력은 제거. 배정된 각 캐릭터의 비고만 표시한다.
       for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
         const item = members.find(r=>Number(r.slot_number)===slot);
         const line = document.createElement('div');
@@ -774,6 +775,12 @@ function renderPartyRoster() {
           desc.className='slot-detail';
           desc.textContent=memberInfo(item);
           contents.append(desc);
+          if (item.character_note) {
+            const note = document.createElement('div');
+            note.className = 'slot-character-note';
+            note.textContent = `비고: ${item.character_note}`;
+            contents.append(note);
+          }
         }
         line.append(num,contents);
         card.append(line);

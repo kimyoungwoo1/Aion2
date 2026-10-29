@@ -465,7 +465,7 @@ async function api(request, env, path) {
     if (!SANCTUARIES.has(sanctuary)) return json({ error: '성역을 확인해 주세요.' }, 400);
     const members = await env.DB.prepare(`
       WITH roster AS (
-        SELECT m.nickname, p.party_number, p.slot_number, COALESCE(mm.marker, '') AS member_marker,
+        SELECT m.sanctuary, m.nickname, p.party_number, p.slot_number, COALESCE(mm.marker, '') AS member_marker,
           COALESCE(mc.character_id, (
             SELECT c2.id FROM characters c2
             WHERE c2.character_name = m.nickname COLLATE NOCASE
@@ -484,8 +484,11 @@ async function api(request, env, path) {
       )
       SELECT roster.nickname, roster.party_number, roster.slot_number, roster.member_marker,
         c.id AS character_id, c.character_name, c.class_name,
-        c.item_level, c.naddol_k, c.server_id, c.synced_at
+        c.item_level, c.naddol_k, c.server_id, c.synced_at,
+        COALESCE(cn.note, '') AS character_note
       FROM roster LEFT JOIN characters c ON c.id = roster.effective_character_id
+      LEFT JOIN sanctuary_character_notes cn
+        ON cn.sanctuary = roster.sanctuary AND cn.character_id = c.id
       ORDER BY roster.nickname COLLATE NOCASE LIMIT 300
     `).bind(sanctuary).all();
     const options = await env.DB.prepare(
@@ -495,6 +498,46 @@ async function api(request, env, path) {
       'SELECT party_number, note, marker FROM sanctuary_party_details WHERE sanctuary = ? ORDER BY party_number'
     ).bind(sanctuary).all();
     return json({ sanctuary, members: members.results, characters: options.results, parties: partyDetails.results });
+  }
+
+  // 캐릭터별 비고. 참여자 닉네임과 현재 연결된 캐릭터 ID를 서버에서 다시 확인한다.
+  // 동일 캐릭터가 파티를 이동해도 비고는 보존되며, 성역별로 독립 관리한다.
+  if (path === '/api/sanctuary/roster/character-note' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    const note = typeof body.note === 'string' ? body.note.trim() : null;
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30) || note === null ||
+        note.length > 150 || /[\u0000-\u001f\u007f]/.test(note)) {
+      return json({ error: '캐릭터 비고를 확인해 주세요. (최대 150자)' }, 400);
+    }
+    const attached = await env.DB.prepare(`
+      SELECT COALESCE(mc.character_id, (
+        SELECT c.id FROM characters c
+        WHERE c.character_name = m.nickname COLLATE NOCASE
+          AND (SELECT COUNT(*) FROM characters matching
+               WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
+        ORDER BY c.id LIMIT 1
+      )) AS character_id
+      FROM sanctuary_members m
+      LEFT JOIN sanctuary_member_characters mc
+        ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
+      WHERE m.sanctuary = ? AND m.nickname = ?
+    `).bind(sanctuary, nickname).first();
+    if (!attached) return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
+    if (!attached.character_id) return json({ error: '비고를 저장할 캐릭터를 먼저 연결해 주세요.' }, 409);
+    if (!note) {
+      await env.DB.prepare(
+        'DELETE FROM sanctuary_character_notes WHERE sanctuary = ? AND character_id = ?'
+      ).bind(sanctuary, attached.character_id).run();
+    } else {
+      await env.DB.prepare(
+        'INSERT INTO sanctuary_character_notes (sanctuary, character_id, note, updated_by, updated_at) ' +
+        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
+        'note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary, attached.character_id, note, user.nickname, now).run();
+    }
+    return json({ success: true });
   }
 
   if (path === '/api/sanctuary/roster/character' && method === 'POST') {
@@ -623,29 +666,6 @@ async function api(request, env, path) {
       'party_number=excluded.party_number,slot_number=excluded.slot_number,' +
       'updated_by=excluded.updated_by,updated_at=excluded.updated_at'
     ).bind(sanctuary, nickname, partyNumber, slotNumber, user.nickname, now).run();
-    return json({ success: true });
-  }
-
-  // 파티에는 비고만 저장한다. 징표는 참여자별로 따로 관리한다.
-  if (path === '/api/sanctuary/roster/party-details' && method === 'POST') {
-    const body = await readJson(request);
-    const sanctuary = body.sanctuary;
-    const partyNumber = Number(body.partyNumber);
-    const note = typeof body.note === 'string' ? body.note.trim() : null;
-    if (!SANCTUARIES.has(sanctuary) || !Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
-        note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note)) {
-      return json({ error: '파티 비고를 확인해 주세요.' }, 400);
-    }
-    if (!note) {
-      await env.DB.prepare('DELETE FROM sanctuary_party_details WHERE sanctuary = ? AND party_number = ?')
-        .bind(sanctuary, partyNumber).run();
-    } else {
-      await env.DB.prepare(
-        'INSERT INTO sanctuary_party_details (sanctuary, party_number, note, marker, updated_by, updated_at) ' +
-        'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary,party_number) DO UPDATE SET ' +
-        "note=excluded.note,marker='',updated_by=excluded.updated_by,updated_at=excluded.updated_at"
-      ).bind(sanctuary, partyNumber, note, '', user.nickname, now).run();
-    }
     return json({ success: true });
   }
 

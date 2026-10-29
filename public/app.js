@@ -307,19 +307,20 @@ function createAvailabilityEditor() {
 function getMyRow() {
   return sanctuaryRows.find(row => row.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR'));
 }
-// 같은 성역의 전원이 특정 시간에 참여할 수 있어야만 표시한다.
-// 오전: '가능' 또는 '오전 가능' / 오후: '가능' 또는 '오후 가능'.
-// 오전과 오후 모두 가능할 때만 '가능'으로 표시하며, 시간대가 엇갈리면 제외한다.
+// 각 요일에 실제로 가능 여부를 선택한 참여자만 비교한다.
+// '미입력'은 제외하지만, 명시적으로 선택한 '불가능'은 계산에 포함한다.
+// 선택한 사람이 0명이면 해당 요일을 추천하지 않는다.
 function calculateCommonAvailability(rows) {
   const available = [];
-  if (!rows.length) return available;
   for (let day = 0; day < 7; day++) {
-    const statuses = rows.map(row => row.statuses[day]);
-    const morning = statuses.every(status => status === 'yes' || status === 'am');
-    const afternoon = statuses.every(status => status === 'yes' || status === 'pm');
-    if (morning && afternoon) available.push({index:day, kind:'yes'});
-    else if (morning) available.push({index:day, kind:'am'});
-    else if (afternoon) available.push({index:day, kind:'pm'});
+    const answered = rows
+      .map(row => row.statuses?.[day] ?? '')
+      .filter(status => ['yes', 'am', 'pm', 'no'].includes(status));
+    if (answered.length === 0) continue;
+    const morning = answered.every(status => status === 'yes' || status === 'am');
+    const afternoon = answered.every(status => status === 'yes' || status === 'pm');
+    const kind = morning && afternoon ? 'yes' : morning ? 'am' : afternoon ? 'pm' : '';
+    if (kind) available.push({index:day, kind, responded:answered.length, total:rows.length});
   }
   return available;
 }
@@ -329,7 +330,7 @@ function renderCommonDays(available, dates) {
   if (!available.length) {
     const empty = document.createElement('span');
     empty.className = 'empty-days';
-    empty.textContent = '다같이 가능한 요일이 없습니다.';
+    empty.textContent = '일정을 입력한 참여자 기준으로 가능한 요일이 없습니다.';
     target.append(empty);
     return;
   }
@@ -337,7 +338,12 @@ function renderCommonDays(available, dates) {
     const pill = document.createElement('span');
     pill.className = 'day-pill' + (entry.kind === 'pm' ? ' pm-only' : entry.kind === 'am' ? ' am-only' : '');
     const status = entry.kind === 'yes' ? '가능' : entry.kind === 'am' ? '오전' : '오후';
-    pill.textContent = `${weekDayNames[entry.index]}요일 ${shortDate(dates[entry.index])} (${status})`;
+    const title = document.createElement('strong');
+    title.textContent = `${weekDayNames[entry.index]}요일 ${shortDate(dates[entry.index])} (${status})`;
+    const count = document.createElement('small');
+    count.className = 'respondent-count';
+    count.textContent = `${entry.responded}/${entry.total}명 입력 기준`;
+    pill.append(title, count);
     target.append(pill);
   }
 }
@@ -386,7 +392,6 @@ function renderSanctuary() {
     const yes = sanctuaryRows.filter(row => row.statuses[idx] === 'yes').length;
     const am = sanctuaryRows.filter(row => row.statuses[idx] === 'am').length;
     const pm = sanctuaryRows.filter(row => row.statuses[idx] === 'pm').length;
-    const notEntered = sanctuaryRows.filter(row => row.statuses[idx] === '').length;
     const no = sanctuaryRows.filter(row => row.statuses[idx] === 'no').length;
     const tile = document.createElement('div');
     const day = document.createElement('div');
@@ -398,9 +403,13 @@ function renderSanctuary() {
     morning.textContent = `오전: ${yes + am}명`;
     const afternoon = document.createElement('div');
     afternoon.textContent = `오후: ${yes + pm}명`;
-    const unavailable = document.createElement('div');
-    unavailable.textContent = `미입력: ${notEntered}명` + (no ? ` · 불가: ${no}명` : '');
-    content.append(morning, afternoon, unavailable);
+    content.append(morning, afternoon);
+    if (no) {
+      const unavailable = document.createElement('div');
+      unavailable.className = 'sum-unavailable';
+      unavailable.textContent = `불가능: ${no}명`;
+      content.append(unavailable);
+    }
     tile.append(day, content);
     summary.append(tile);
   });
@@ -641,7 +650,7 @@ function renderPartyRoster() {
   const taken = new Set(rows.map(partyPlace).filter(Boolean));
   const heading = document.createElement('div');
   heading.className = 'roster-compact-header';
-  for (const text of ['참여자', '캐릭터 선택', '파티 위치 · 징표', '캐릭터 비고']) {
+  for (const text of ['참여자', '캐릭터 선택', '파티 · 징표', '캐릭터 비고', '저장']) {
     const item = document.createElement('span'); item.textContent = text; heading.append(item);
   }
   if (rows.length) container.append(heading);
@@ -694,16 +703,10 @@ function renderPartyRoster() {
     markSelect.value = member.member_marker || '';
     const saveAssignment = document.createElement('button');
     saveAssignment.type = 'button';
-    saveAssignment.className = 'secondary small assignment-save';
-    saveAssignment.textContent = '배정 저장';
-    saveAssignment.setAttribute('aria-label', member.nickname + ' 파티 및 징표 함께 저장');
-    saveAssignment.addEventListener('click', async () => {
-      const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
-      await updatePartySetting('/api/sanctuary/roster/assignment',
-        {sanctuary:activeSection, nickname:member.nickname,
-         partyNumber:p, slotNumber:slot, marker:markSelect.value}, saveAssignment);
-    });
-    assignmentWrap.append(partySelect, markSelect, saveAssignment);
+    saveAssignment.className = 'primary small roster-save-all';
+    saveAssignment.textContent = '변경사항 저장';
+    saveAssignment.setAttribute('aria-label', member.nickname + ' 파티, 징표, 비고 모두 저장');
+    assignmentWrap.append(partySelect, markSelect);
 
     // 비고는 파티에 저장하지 않는다. 성역별 캐릭터 ID에 연결하여 저장한다.
     // 파티를 바꾸어도 비고가 따라다니며 다른 캐릭터로 변경하면 이전 비고를 섞지 않는다.
@@ -716,74 +719,118 @@ function renderPartyRoster() {
     characterNote.placeholder = member.character_id ? '예: 1넴 징표 담당' : '캐릭터 연결 후 입력';
     characterNote.setAttribute('aria-label', `${member.nickname} 캐릭터 비고`);
     characterNote.disabled = !member.character_id;
-    const saveNote = document.createElement('button');
-    saveNote.type = 'button';
-    saveNote.className = 'secondary small';
-    saveNote.textContent = '비고 저장';
-    saveNote.disabled = !member.character_id;
-    saveNote.setAttribute('aria-label', `${member.nickname} 캐릭터 비고 저장`);
-    saveNote.addEventListener('click', async () => {
-      await updatePartySetting('/api/sanctuary/roster/character-note',
-        {sanctuary:activeSection, nickname:member.nickname, note:characterNote.value}, saveNote);
+    noteWrap.append(characterNote);
+    saveAssignment.addEventListener('click', async () => {
+      const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
+      await updatePartySetting('/api/sanctuary/roster/assignment', {
+        sanctuary: activeSection, nickname: member.nickname,
+        partyNumber: p, slotNumber: slot,
+        marker: markSelect.value,
+        note: characterNote.value
+      }, saveAssignment);
     });
-    noteWrap.append(characterNote, saveNote);
-    wrap.append(identity, charSelect, assignmentWrap, noteWrap);
+    wrap.append(identity, charSelect, assignmentWrap, noteWrap, saveAssignment);
     container.append(wrap);
   }
 
   const cards = $('partyCards');
   cards.replaceChildren();
-  for (let force=1;force<=FORCE_COUNT;force++) {
-    const forceCard = document.createElement('section');
-    forceCard.className = 'force-card';
-    const forceTitle = document.createElement('h3');
-    forceTitle.className = 'force-title';
-    const forceMembers = rows.filter(r => Math.ceil(Number(r.party_number) / PARTIES_PER_FORCE) === force);
-    forceTitle.textContent = `${force}포스 · ${forceMembers.length}/${PARTIES_PER_FORCE * PARTY_CAPACITY}명`;
-    forceCard.append(forceTitle);
+  for (let force = 1; force <= FORCE_COUNT; force++) {
+    const forceMembers = rows.filter(row =>
+      row.party_number != null && Math.ceil(Number(row.party_number) / PARTIES_PER_FORCE) === force);
+    // 빈 포스는 접힌 상태로 보여 주되 클릭하면 항상 펼칠 수 있다.
+    const forceCard = document.createElement('details');
+    forceCard.className = 'force-card' + (forceMembers.length ? ' has-members' : ' is-empty-force');
+    forceCard.open = forceMembers.length > 0;
+    const head = document.createElement('summary');
+    head.className = 'force-title';
+    const forceName = document.createElement('strong');
+    forceName.textContent = `${force}포스`;
+    const forceMeta = document.createElement('span');
+    forceMeta.className = 'force-meta';
+    forceMeta.textContent = `${forceMembers.length} / ${PARTIES_PER_FORCE * PARTY_CAPACITY}명`;
+    head.append(forceName, forceMeta);
+    forceCard.append(head);
+
     const parties = document.createElement('div');
     parties.className = 'force-parties';
-    for (let withinForce=1;withinForce<=PARTIES_PER_FORCE;withinForce++) {
+    for (let withinForce = 1; withinForce <= PARTIES_PER_FORCE; withinForce++) {
       const party = (force - 1) * PARTIES_PER_FORCE + withinForce;
-      const card = document.createElement('div');
-      card.className='party-card';
+      const members = forceMembers
+        .filter(row => Number(row.party_number) === party)
+        .sort((a, b) => Number(a.slot_number) - Number(b.slot_number));
+      const card = document.createElement('section');
+      card.className = 'party-card' + (members.length ? ' party-populated' : ' party-empty');
+      const heading = document.createElement('div');
+      heading.className = 'party-heading';
       const title = document.createElement('h3');
-      const members = rows.filter(r=>Number(r.party_number)===party);
-      title.textContent = `${withinForce}파티 · ${members.length}/${PARTY_CAPACITY}명`;
-      card.append(title);
-      // 파티별 비고 입력은 제거. 배정된 각 캐릭터의 비고만 표시한다.
-      for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
-        const item = members.find(r=>Number(r.slot_number)===slot);
+      title.textContent = `${withinForce}파티`;
+      const count = document.createElement('span');
+      count.className = 'party-member-count';
+      count.textContent = `${members.length}/${PARTY_CAPACITY}명`;
+      heading.append(title, count);
+      card.append(heading);
+
+      if (members.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'party-empty-hint';
+        empty.textContent = '배정된 캐릭터 없음';
+        card.append(empty);
+      }
+      for (const member of members) {
         const line = document.createElement('div');
-        line.className = 'party-slot' + (item?'':' empty');
-        const num = document.createElement('span');
-        num.className='slot-num'; num.textContent=String(slot);
-        const contents=document.createElement('div');
-        contents.style.flex='1';
-        const name=document.createElement('strong');
-        name.textContent = item ? item.nickname : '빈 자리';
-        if (item && markText(item.member_marker)) {
+        line.className = 'party-entry';
+        const slotNumber = document.createElement('span');
+        slotNumber.className = 'party-entry-slot';
+        slotNumber.textContent = String(member.slot_number);
+        const body = document.createElement('div');
+        body.className = 'party-entry-body';
+        const top = document.createElement('div');
+        top.className = 'party-entry-top';
+        const who = document.createElement('div');
+        who.className = 'party-entry-who';
+        if (markText(member.member_marker)) {
           const marker = document.createElement('span');
           marker.className = 'assigned-marker';
-          marker.textContent = markText(item.member_marker);
-          marker.setAttribute('aria-label', `징표 ${PARTY_MARKS.find(([value]) => value === item.member_marker)?.[1] || item.member_marker}`);
-          contents.append(marker);
+          marker.textContent = markText(member.member_marker);
+          marker.setAttribute('aria-label', `징표 ${PARTY_MARKS.find(([value]) => value === member.member_marker)?.[1] || member.member_marker}`);
+          who.append(marker);
         }
-        contents.append(name);
-        if (item) {
-          const desc=document.createElement('div');
-          desc.className='slot-detail';
-          desc.textContent=memberInfo(item);
-          contents.append(desc);
-          if (item.character_note) {
-            const note = document.createElement('div');
-            note.className = 'slot-character-note';
-            note.textContent = `비고: ${item.character_note}`;
-            contents.append(note);
-          }
+        const nickname = document.createElement('strong');
+        nickname.textContent = member.nickname;
+        who.append(nickname);
+        const role = document.createElement('span');
+        role.className = 'party-entry-role';
+        role.textContent = member.class_name || '직업 미확인';
+        top.append(who, role);
+        body.append(top);
+        if (member.character_id) {
+          const stats = document.createElement('div');
+          stats.className = 'party-entry-stats';
+          const level = Number(member.item_level || 0).toLocaleString('ko-KR');
+          const power = Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1});
+          stats.textContent = `Lv ${level} · ${power}k`;
+          body.append(stats);
+        } else {
+          const missing = document.createElement('div');
+          missing.className = 'party-entry-stats';
+          missing.textContent = '캐릭터 연결 필요';
+          body.append(missing);
         }
-        line.append(num,contents);
+        if (member.character_note?.trim()) {
+          const note = document.createElement('div');
+          note.className = 'party-entry-note';
+          note.textContent = member.character_note.trim();
+          body.append(note);
+        }
+        line.append(slotNumber, body);
         card.append(line);
+      }
+      if (members.length && members.length < PARTY_CAPACITY) {
+        const remaining = document.createElement('div');
+        remaining.className = 'party-remaining';
+        remaining.textContent = `빈자리 ${PARTY_CAPACITY - members.length}명`;
+        card.append(remaining);
       }
       parties.append(card);
     }
@@ -791,6 +838,7 @@ function renderPartyRoster() {
     cards.append(forceCard);
   }
 }
+
 async function updatePartySetting(path, payload, control) {
   control.disabled = true;
   $('partyMessage').textContent = '저장 중...';

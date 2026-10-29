@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: assignment-marker-no-status-20261029 -->
+  <!-- UI version: aion2-clarity-availability-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -208,6 +208,63 @@
       .roster-compact-row { grid-template-columns:1fr; }
       .character-note-edit { grid-column:1; }
     }
+
+    /* 자주 보는 파티 편성은 위, 수정용 전체 참여 캐릭터는 아래의 접이식 패널 */
+    .roster-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:18px; align-items:stretch; }
+    .roster-editor-details > summary { cursor:pointer; color:#f7f9ff; font-size:19px; font-weight:800; padding:2px 0; list-style-position:inside; }
+    .roster-editor-details > summary span { color:var(--muted); font-size:12px; font-weight:500; margin-left:10px; }
+    .roster-editor-details[open] > summary { padding-bottom:16px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+    .roster-compact-header,.roster-compact-row { grid-template-columns:minmax(90px,.75fr) minmax(145px,1.15fr) minmax(255px,2.15fr) minmax(145px,1.35fr) auto; }
+    .roster-assignment { grid-template-columns:minmax(0,1.7fr) minmax(90px,.75fr); }
+    .roster-save-all { white-space:nowrap; min-height:39px; }
+    .character-note-edit input { font-size:13px; }
+    .slot-character-note { margin:7px 0 3px; padding:6px 9px; border-left:3px solid #e9be78; background:#293348; border-radius:0 5px 5px 0; color:#ffe1ad; line-height:1.4; }
+    @media (max-width:1250px) {
+      .roster-compact-header { display:none; }
+      .roster-compact-row { grid-template-columns:minmax(150px,.8fr) minmax(150px,1.2fr); }
+      .roster-assignment,.character-note-edit { grid-column:auto; }
+      .roster-save-all { grid-column:1/-1; justify-self:end; }
+    }
+    @media (max-width:640px) {
+      .roster-compact-row { grid-template-columns:1fr; }
+      .roster-assignment,.character-note-edit,.roster-save-all { grid-column:1; }
+      .roster-editor-details > summary span { display:block; margin:8px 0 0 23px; }
+    }
+
+    /* 2026-10-29: 한눈에 읽히는 포스/파티 편성 */
+    .force-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+    .force-card { background:#192944; padding:15px 18px; border:1px solid #425979; border-radius:13px; }
+    .force-card.has-members { border-color:#5a6e90; }
+    .force-card.is-empty-force { background:#151f31; }
+    .force-title { display:flex; justify-content:space-between; align-items:center; gap:16px; list-style:none; margin:0; cursor:pointer; color:var(--gold); font-size:18px; }
+    .force-title::-webkit-details-marker { display:none; }
+    .force-title strong { font-weight:850; }
+    .force-title::after { content:'⌄'; color:#a5b9d4; margin-left:4px; font-size:20px; transform:rotate(-90deg); transition:transform .15s ease; }
+    .force-card[open] > .force-title::after { transform:rotate(0); }
+    .force-meta { margin-left:auto; color:#d2dff4; font-weight:650; font-size:14px; }
+    .force-parties { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:15px; }
+    .party-card { background:#101a2b; border:1px solid #30425d; border-radius:11px; padding:13px 15px; min-width:0; }
+    .party-heading { display:flex; justify-content:space-between; gap:8px; align-items:center; margin:0 0 8px; }
+    .party-heading h3 { font-size:16px; color:var(--gold); margin:0; }
+    .party-member-count { font-size:12px; color:#b4c6dd; font-weight:700; white-space:nowrap; }
+    .party-entry { display:grid; grid-template-columns:24px minmax(0,1fr); gap:9px; align-items:start; border-top:1px solid #2b3a51; padding:10px 0; }
+    .party-entry-slot { color:#91a8ca; background:#1e2a3d; width:23px; height:23px; text-align:center; line-height:23px; font-size:12px; font-weight:750; border-radius:7px; }
+    .party-entry-body { min-width:0; }
+    .party-entry-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:5px 10px; min-width:0; }
+    .party-entry-who { display:flex; align-items:center; min-width:0; gap:7px; }
+    .party-entry-who strong { font-size:15px; overflow-wrap:anywhere; }
+    .party-entry-who .assigned-marker { margin:0; min-width:23px; }
+    .party-entry-role { font-size:12px; border:1px solid #38526f; background:#24344c; padding:3px 7px; border-radius:5px; color:#c8d7ed; white-space:nowrap; }
+    .party-entry-stats { font-size:12px; margin-top:4px; color:#a9bdd9; }
+    .party-entry-note { margin-top:6px; border-left:2px solid var(--gold); color:#ffe1ad; padding:4px 8px; font-size:12px; line-height:1.45; border-radius:0 5px 5px 0; background:#293448; overflow-wrap:anywhere; }
+    .party-empty-hint { padding:15px 4px 12px; font-size:13px; color:#8399b6; text-align:center; }
+    .party-remaining { font-size:12px; color:#859bbb; border-top:1px dashed #38465d; padding-top:9px; margin-top:2px; text-align:right; }
+    .sum-unavailable { color:#dbadac; font-size:12px; }
+    .all-available-days .day-pill { display:flex; flex-direction:column; align-items:flex-start; gap:2px; border-radius:10px; padding:8px 11px; }
+    .all-available-days .day-pill strong { font-size:13px; }
+    .all-available-days .day-pill .respondent-count { display:block; margin:0; font-size:11px; font-weight:500; color:#b6d1df; line-height:1.35; }
+    @media (max-width:750px) { .force-parties { grid-template-columns:1fr; } }
+    @media (max-width:500px) { .force-card { padding:12px; } .party-card { padding:12px; } .party-entry-top { align-items:flex-start; } }
   </style>
 </head>
 <body>
@@ -293,11 +350,11 @@
         <div class="card">
           <div class="sectionhead"><h2>날짜별 참여 가능 인원</h2><span class="tag" id="scheduleCount"></span></div>
           <div id="scheduleSummary" class="schedule-summary"></div>
-          <p class="muted" style="font-size:13px">오전 인원: '가능' 또는 '오전 가능' · 오후 인원: '가능' 또는 '오후 가능' · 미입력은 참여 인원에 포함하지 않습니다.</p>
+          <p class="muted" style="font-size:13px">오전: 가능·오전 가능 / 오후: 가능·오후 가능. 미입력 인원은 표시하지 않습니다.</p>
           <div class="all-available" aria-live="polite">
             <h3>다같이 가능한 요일</h3>
             <div class="all-available-days" id="allAvailableDays"></div>
-            <small>전원이 오전·오후 모두 가능하면 (가능), 오전만 가능하면 (오전), 오후만 가능하면 (오후)로 표시합니다. 서로 가능한 시간이 다르거나 미입력이 있으면 제외합니다.</small>
+            <small>해당 요일에 <strong>일정을 입력한 참여자만 기준</strong>으로 계산합니다. 전원이 오전·오후 가능하면 (가능), 오전만 겹치면 (오전), 오후만 겹치면 (오후)로 표시해요. 아직 입력하지 않은 사람은 제외하며, 각 요일에 계산에 포함된 인원을 함께 표시합니다.</small>
           </div>
         </div>
         <div class="card">
@@ -333,20 +390,21 @@
           <div class="roster-layout">
             <div class="card">
               <div class="sectionhead" style="flex-wrap:wrap">
-                <h2>전체 참여 캐릭터</h2>
-                <button class="secondary small" id="reloadPartyRoster" type="button">새로고침</button>
-              </div>
-              <p class="roster-summary">캐릭터를 연결하고, 파티 위치와 징표를 함께 선택한 뒤 「배정 저장」을 누르세요. 오른쪽 파티 편성에 징표가 표시됩니다.</p>
-              <div id="rosterMembers"></div>
-            </div>
-            <div class="card">
-              <div class="sectionhead" style="flex-wrap:wrap">
                 <h2>파티 편성</h2>
                 <span class="tag">1포스 → 2포스 → 3포스 → 4포스</span>
               </div>
-              <p class="roster-summary">각 포스는 2개 파티, 각 파티는 5자리입니다. 징표와 캐릭터 비고는 왼쪽에서 설정하고, 편성된 파티에는 해당 캐릭터의 징표와 비고를 표시합니다.</p>
+              <p class="roster-summary">1~4포스, 포스당 2파티 · 파티당 최대 5명. 배정된 캐릭터만 간결하게 표시하며 비어 있는 포스는 눌러 펼칠 수 있어요. 징표·비고·파티 배정은 하단 「전체 참여 캐릭터」에서 수정합니다.</p>
               <div id="partyCards" class="force-grid"></div>
             </div>
+            <details class="card roster-editor-details" id="rosterEditorDetails">
+              <summary>전체 참여 캐릭터 <span>배정 · 징표 · 비고 수정할 때 펼치기</span></summary>
+              <div class="sectionhead" style="flex-wrap:wrap">
+                <h3>캐릭터 설정 변경</h3>
+                <button class="secondary small" id="reloadPartyRoster" type="button">새로고침</button>
+              </div>
+              <p class="roster-summary">캐릭터를 연결한 뒤 파티 위치·징표·캐릭터 비고를 입력하고 「변경사항 저장」을 누르세요. 위의 파티 편성에 바로 표시됩니다.</p>
+              <div id="rosterMembers"></div>
+            </details>
           </div>
           <p id="partyMessage" class="message" role="status"></p>
         </div>
@@ -376,6 +434,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=assignment-marker-no-status-20261029"></script>
+  <script type="module" src="/app.js?v=aion2-clarity-availability-20261029"></script>
 </body>
 </html>

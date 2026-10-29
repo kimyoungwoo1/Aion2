@@ -287,7 +287,6 @@ let sanctuaryRows = [];
 let sanctuaryIsMember = false;
 let activeSanctuaryView = 'schedule';
 let sanctuaryPartyRows = [];
-let sanctuaryPartyCharacters = [];
 const PARTY_MARKS = [['', '징표 없음'], ['1','1'], ['2','2'], ['3','3'], ['4','4'], ['5','5'], ['star','★ 별'], ['skull','☠ 해골'], ['moon','☾ 달']];
 const PARTY_MARK_SYMBOLS = { '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', star:'★', skull:'☠', moon:'☾' };
 function appendMarkOptions(select) {
@@ -638,7 +637,6 @@ async function loadPartyRoster() {
   const result = await api('/api/sanctuary/roster?sanctuary=' + encodeURIComponent(requestedSection));
   if (activeSection !== requestedSection) return;
   sanctuaryPartyRows = result.members || [];
-  sanctuaryPartyCharacters = result.characters || [];
   $('partyMessage').textContent = '';
   renderPartyRoster();
 }
@@ -659,17 +657,18 @@ function partyLabel(partyNumber) {
 
 function renderPartyRoster() {
   const rows = sanctuaryPartyRows;
-  const assigned = rows.filter(row => row.party_number != null);
-  $('partyMemberTotal').textContent = `${rows.length}명`;
+  const characterRows = rows.filter(row => row.character_id != null);
+  const assigned = characterRows.filter(row => row.party_number != null);
+  $('partyMemberTotal').textContent = `${characterRows.length}명`;
   $('partyAssignedTotal').textContent = `${assigned.length}명`;
   $('partyCountTotal').textContent = `${FORCE_COUNT}포스 · ${TOTAL_PARTIES}파티`;
-  const times = rows.map(row => Number(row.synced_at) || 0).filter(Boolean);
+  const times = characterRows.map(row => Number(row.synced_at) || 0).filter(Boolean);
   $('partyLastSynced').textContent = times.length
     ? `최근 전투력 갱신: ${new Date(Math.max(...times) * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'})}`
     : '전투력 갱신 정보 없음';
 
   const dist = new Map();
-  rows.forEach(row => { if (row.class_name) dist.set(row.class_name, (dist.get(row.class_name) || 0) + 1); });
+  characterRows.forEach(row => { if (row.class_name) dist.set(row.class_name, (dist.get(row.class_name) || 0) + 1); });
   const chips = $('rosterClassDistribution');
   chips.replaceChildren();
   [...dist.entries()].sort((a,b)=>a[0].localeCompare(b[0],'ko')).forEach(([name, total]) => {
@@ -678,19 +677,22 @@ function renderPartyRoster() {
     el.textContent = `${name} ${total}`;
     chips.append(el);
   });
-  if (!dist.size) chips.textContent = '연결된 캐릭터가 없습니다.';
+  if (!dist.size) chips.textContent = '등록된 참여 캐릭터가 없습니다.';
 
   const container = $('rosterMembers');
   container.replaceChildren();
-  if (!rows.length) container.textContent = '고정 참여자가 없습니다. 참여 일정 탭에서 먼저 고정 참여자를 등록해 주세요.';
-  const taken = new Set(rows.map(partyPlace).filter(Boolean));
+  if (!rows.length) {
+    container.textContent = '고정 참여자가 없습니다. 참여 일정 탭에서 먼저 고정 참여자를 등록해 주세요.';
+  }
+  const taken = new Set(characterRows.map(partyPlace).filter(Boolean));
   const heading = document.createElement('div');
   heading.className = 'roster-compact-header';
-  for (const text of ['참여자', '캐릭터 선택', '파티 · 징표', '캐릭터 비고', '저장']) {
+  for (const text of ['참여자', '등록 캐릭터', '파티 · 징표', '캐릭터 비고', '저장']) {
     const item = document.createElement('span'); item.textContent = text; heading.append(item);
   }
   if (rows.length) container.append(heading);
 
+  // 같은 참여자의 캐릭터가 여러 개여도 각각 고유한 행과 저장 버튼을 갖는다.
   for (const member of rows) {
     const wrap = document.createElement('div');
     wrap.className = 'roster-compact-row';
@@ -698,43 +700,35 @@ function renderPartyRoster() {
     identity.className = 'roster-compact-identity';
     const name = document.createElement('strong');
     name.textContent = member.nickname;
+    identity.append(name);
+    if (!member.character_id) {
+      const hint = document.createElement('small');
+      hint.textContent = '등록 캐릭터 없음';
+      identity.append(hint);
+      const placeholder = document.createElement('div');
+      placeholder.className = 'roster-character-label';
+      placeholder.textContent = '캐릭터 관리에서 먼저 등록해 주세요.';
+      wrap.append(identity, placeholder);
+      container.append(wrap);
+      continue;
+    }
     const detail = document.createElement('small');
-    detail.textContent = member.character_id
-      ? `${member.class_name || '-'} · ${Number(member.item_level || 0).toLocaleString('ko-KR')} · ${Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`
-      : '캐릭터 연결 필요';
-    identity.append(name, detail);
+    detail.textContent = `${member.class_name || '-'} · Lv ${Number(member.item_level || 0).toLocaleString('ko-KR')} · ${Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`;
+    identity.append(detail);
 
-    const charSelect = document.createElement('select');
-    charSelect.setAttribute('aria-label', member.nickname + ' 캐릭터 선택');
-    const ownedCharacters = charactersForParticipant(sanctuaryPartyCharacters, member.nickname);
-    charSelect.add(new Option(ownedCharacters.length ? '자동 연결 / 미선택' : '등록된 캐릭터 없음', ''));
-    for (const c of ownedCharacters) {
-      const serverName = serverById.get(Number(c.server_id))?.name || '서버 확인 필요';
-      charSelect.add(new Option(`${c.character_name} · ${serverName} (${c.class_name})`, String(c.id)));
-    }
-    // 이전 버전에서 다른 소유자의 캐릭터를 연결한 기록이 있더라도
-    // 화면이 임의로 연결을 삭제하지 않게 현재 연결값만 표시한다.
-    // 해당 캐릭터는 새 연결 후보로 제공하지 않는다.
-    if (member.character_id != null &&
-        !ownedCharacters.some(c => Number(c.id) === Number(member.character_id))) {
-      const legacy = new Option(`기존 연결: ${member.character_name || '캐릭터'} (소유자 확인 필요)`,
-        String(member.character_id));
-      charSelect.add(legacy);
-    }
-    charSelect.value = member.character_id == null ? '' : String(member.character_id);
-    if (!ownedCharacters.length && member.character_id == null) charSelect.disabled = true;
-    charSelect.addEventListener('change', async () => {
-      const chosen = charSelect.value ? Number(charSelect.value) : null;
-      await updatePartySetting('/api/sanctuary/roster/character',
-        {sanctuary:activeSection,nickname:member.nickname,characterId:chosen}, charSelect);
-    });
+    const charLabel = document.createElement('div');
+    charLabel.className = 'roster-character-label';
+    const characterName = document.createElement('strong');
+    characterName.textContent = member.character_name;
+    charLabel.append(characterName);
+    const serverLabel = document.createElement('small');
+    serverLabel.textContent = serverById.get(Number(member.server_id))?.name || '서버 확인 필요';
+    charLabel.append(serverLabel);
 
-    // 파티 위치와 징표를 한 번의 저장 요청으로 적용한다.
-    // 서로 다른 onchange 요청이 목록을 다시 그리면서 선택값을 잃는 문제를 방지한다.
     const assignmentWrap = document.createElement('div');
     assignmentWrap.className = 'roster-assignment';
     const partySelect = document.createElement('select');
-    partySelect.setAttribute('aria-label', member.nickname + ' 파티 위치');
+    partySelect.setAttribute('aria-label', member.character_name + ' 파티 위치');
     partySelect.add(new Option('미배정', ''));
     for (let party = 1; party <= TOTAL_PARTIES; party++) {
       for (let slot = 1; slot <= PARTY_CAPACITY; slot++) {
@@ -745,38 +739,37 @@ function renderPartyRoster() {
     }
     partySelect.value = partyPlace(member);
     const markSelect = document.createElement('select');
-    markSelect.setAttribute('aria-label', member.nickname + ' 징표');
+    markSelect.setAttribute('aria-label', member.character_name + ' 징표');
     appendMarkOptions(markSelect);
     markSelect.value = member.member_marker || '';
     const saveAssignment = document.createElement('button');
     saveAssignment.type = 'button';
     saveAssignment.className = 'primary small roster-save-all';
     saveAssignment.textContent = '변경사항 저장';
-    saveAssignment.setAttribute('aria-label', member.nickname + ' 파티, 징표, 비고 모두 저장');
+    saveAssignment.setAttribute('aria-label', member.character_name + ' 파티, 징표, 비고 모두 저장');
     assignmentWrap.append(partySelect, markSelect);
 
-    // 비고는 파티에 저장하지 않는다. 성역별 캐릭터 ID에 연결하여 저장한다.
-    // 파티를 바꾸어도 비고가 따라다니며 다른 캐릭터로 변경하면 이전 비고를 섞지 않는다.
     const noteWrap = document.createElement('div');
     noteWrap.className = 'character-note-edit';
     const characterNote = document.createElement('input');
     characterNote.type = 'text';
     characterNote.maxLength = 150;
     characterNote.value = member.character_note || '';
-    characterNote.placeholder = member.character_id ? '예: 1넴 징표 담당' : '캐릭터 연결 후 입력';
-    characterNote.setAttribute('aria-label', `${member.nickname} 캐릭터 비고`);
-    characterNote.disabled = !member.character_id;
+    characterNote.placeholder = '예: 1넴 징표 담당';
+    characterNote.setAttribute('aria-label', `${member.character_name} 캐릭터 비고`);
     noteWrap.append(characterNote);
     saveAssignment.addEventListener('click', async () => {
       const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
       await updatePartySetting('/api/sanctuary/roster/assignment', {
-        sanctuary: activeSection, nickname: member.nickname,
+        sanctuary: activeSection,
+        nickname: member.nickname,
+        characterId: member.character_id,
         partyNumber: p, slotNumber: slot,
         marker: markSelect.value,
         note: characterNote.value
       }, saveAssignment);
     });
-    wrap.append(identity, charSelect, assignmentWrap, noteWrap, saveAssignment);
+    wrap.append(identity, charLabel, assignmentWrap, noteWrap, saveAssignment);
     container.append(wrap);
   }
 
@@ -843,9 +836,12 @@ function renderPartyRoster() {
           marker.setAttribute('aria-label', `징표 ${PARTY_MARKS.find(([value]) => value === member.member_marker)?.[1] || member.member_marker}`);
           who.append(marker);
         }
-        const nickname = document.createElement('strong');
-        nickname.textContent = member.nickname;
-        who.append(nickname);
+        // 파티 편성에는 고정 참여자(소유자)의 닉네임이 아닌
+        // 실제 연결/선택된 캐릭터명을 보여준다.
+        const characterName = document.createElement('strong');
+        characterName.textContent = member.character_id && member.character_name
+          ? member.character_name : '캐릭터 미연결';
+        who.append(characterName);
         const role = document.createElement('span');
         role.className = 'party-entry-role';
         role.textContent = member.class_name || '직업 미확인';

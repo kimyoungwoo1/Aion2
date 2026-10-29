@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: aion2-owner-sort-roster-filter-20261029 -->
+  <!-- UI version: aion2-character-independent-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -217,6 +217,10 @@
     .roster-compact-header,.roster-compact-row { grid-template-columns:minmax(90px,.75fr) minmax(145px,1.15fr) minmax(255px,2.15fr) minmax(145px,1.35fr) auto; }
     .roster-assignment { grid-template-columns:minmax(0,1.7fr) minmax(90px,.75fr); }
     .roster-save-all { white-space:nowrap; min-height:39px; }
+    .roster-character-label { display:flex; flex-direction:column; gap:4px; min-width:0; overflow-wrap:anywhere; }
+    .roster-character-label strong { color:#f4f8ff; font-size:14px; }
+    .roster-character-label small { color:#a7c0db; font-size:11px; }
+    .roster-compact-row .roster-character-label { padding:5px 0; }
     .character-note-edit input { font-size:13px; }
     .slot-character-note { margin:7px 0 3px; padding:6px 9px; border-left:3px solid #e9be78; background:#293348; border-radius:0 5px 5px 0; color:#ffe1ad; line-height:1.4; }
     @media (max-width:1250px) {
@@ -391,7 +395,7 @@
               <span class="tag" id="partyLastSynced">전투력 갱신 정보</span>
             </div>
             <div id="rosterClassDistribution" class="class-chips"></div>
-            <p class="roster-summary">등록된 캐릭터의 직업·아이템 레벨·남툴을 사용합니다. 캐릭터가 연결되지 않은 참여자는 아래에서 직접 선택할 수 있습니다.</p>
+            <p class="roster-summary">고정 참여자로 등록된 닉네임이 소유한 모든 캐릭터를 개별 표시합니다. 직업·아이템 레벨·남툴은 캐릭터별 정보입니다.</p>
           </div>
           <div class="roster-layout">
             <div class="card">
@@ -408,7 +412,7 @@
                 <h3>캐릭터 설정 변경</h3>
                 <button class="secondary small" id="reloadPartyRoster" type="button">새로고침</button>
               </div>
-              <p class="roster-summary">캐릭터를 연결한 뒤 파티 위치·징표·캐릭터 비고를 입력하고 「변경사항 저장」을 누르세요. 위의 파티 편성에 바로 표시됩니다.</p>
+              <p class="roster-summary">참여자별로 등록된 모든 캐릭터를 각각 배정할 수 있습니다. 서로 다른 캐릭터의 파티 위치·징표·비고는 독립적으로 저장됩니다.</p>
               <div id="rosterMembers"></div>
             </details>
           </div>
@@ -440,6 +444,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=aion2-owner-sort-roster-filter-20261029"></script>
+  <script type="module" src="/app.js?v=aion2-character-independent-20261029"></script>
 </body>
 </html>

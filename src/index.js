@@ -1,7 +1,7 @@
+import { lookupOfficialCharacter, OfficialAionLookupError } from "./aion-api.js";
 const encoder = new TextEncoder();
 const SESSION_AGE = 7 * 24 * 60 * 60;
 const JSON_LIMIT = 8192;
-const CHARACTER_API_URL = 'https://aion2-api.ksmsy1.workers.dev/';
 
 // 한국 서버명 ↔ API 서버 ID (게임 클라이언트 서버명 테이블 기준)
 // 이 목록은 데이터베이스에 있는 서버 ID를 바꾸지 않습니다.
@@ -145,85 +145,17 @@ class LookupError extends Error {
   }
 }
 
-// CSV의 첫 행을 읽음. 따옴표와 이스케이프된 따옴표, 쉼표를 처리한다.
-function firstCsvRow(text) {
-  const input = text.replace(/^\uFEFF/, '');
-  const values = [];
-  let buffer = '';
-  let quoted = false;
-  for (let i = 0; i < input.length; i++) {
-    const c = input[i];
-    if (c === '"') {
-      if (quoted && input[i + 1] === '"') { buffer += '"'; i++; }
-      else quoted = !quoted;
-    } else if (c === ',' && !quoted) {
-      values.push(buffer.trim());
-      buffer = '';
-    } else if ((c === '\r' || c === '\n') && !quoted) {
-      break;
-    } else {
-      buffer += c;
+// 기존 API 엔드포인트/DB 구조는 유지하고 조회 구현만 공식 API 직접 호출로 교체합니다.
+async function lookupCharacter(_env, characterName, serverId) {
+  try {
+    return await lookupOfficialCharacter(characterName, serverId);
+  } catch (error) {
+    if (error instanceof OfficialAionLookupError) {
+      throw new LookupError(error.message, error.status);
     }
+    console.error('Official character lookup unexpected error:', error?.message);
+    throw new LookupError('공식 캐릭터 조회 중 오류가 발생했습니다.');
   }
-  values.push(buffer.trim());
-  return values;
-}
-
-function parseLookupCsv(text) {
-  const row = firstCsvRow(text.trim());
-  if (row.length < 3) throw new LookupError('캐릭터 API 응답 형식을 확인해 주세요.');
-  const className = row[0].trim();
-  if (className === '조회 실패' || className === '없음') {
-    throw new LookupError('해당 서버에서 캐릭터를 찾지 못했습니다.', 404);
-  }
-  // 숫자에 쉼표가 붙어 있어도 처리 (예: 6,740).
-  const itemRaw = row.slice(1, -1).join(',').replace(/,/g, '').trim();
-  const itemLevel = Number(itemRaw);
-  const powerRaw = row[row.length - 1].trim().replace(/,/g, '');
-  const powerMatch = powerRaw.match(/^(\d+(?:\.\d+)?)\s*([kKmM]?)$/);
-  if (!validLabel(className, 20) || !Number.isInteger(itemLevel) ||
-      itemLevel < 0 || itemLevel > 50000 || !powerMatch) {
-    throw new LookupError('API에서 받은 직업, 아이템 레벨 또는 남툴 값이 올바르지 않습니다.');
-  }
-  const naddolK = Number(powerMatch[1]) * (powerMatch[2].toLowerCase() === 'm' ? 1000 : 1);
-  if (!Number.isFinite(naddolK) || naddolK < 0 || naddolK > 10000000) {
-    throw new LookupError('API 남툴 값의 범위를 확인해 주세요.');
-  }
-  return { className, itemLevel, naddolK };
-}
-
-async function lookupCharacter(env, characterName, serverId) {
-  if (!env.AION_API || typeof env.AION_API.fetch !== 'function') {
-    throw new LookupError('aion2-api Service Binding이 연결되지 않았습니다.', 503);
-  }
-  const url = new URL(CHARACTER_API_URL);
-  url.searchParams.set('name', characterName);
-  url.searchParams.set('serverId', String(serverId));
-  url.searchParams.set('format', 'csv');
-  let lastError;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const request = new Request(url.toString(), {
-        method: 'GET',
-        headers: { Accept: 'text/csv' },
-        signal: AbortSignal.timeout(12000)
-      });
-      const response = await env.AION_API.fetch(request);
-      if (!response.ok) {
-        if (response.status === 404) throw new LookupError('캐릭터 API에서 대상을 찾지 못했습니다.', 404);
-        throw new LookupError(`캐릭터 API 응답 오류 (HTTP ${response.status})`);
-      }
-      const text = await response.text();
-      if (!text.trim() || text.length > 30000) throw new LookupError('캐릭터 API 응답이 비어 있거나 너무 큽니다.');
-      return parseLookupCsv(text);
-    } catch (error) {
-      if (error instanceof LookupError && error.status === 404) throw error;
-      lastError = error;
-    }
-  }
-  console.error('Character lookup failed:', lastError?.message);
-  throw lastError instanceof LookupError ? lastError :
-    new LookupError('캐릭터 API 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.');
 }
 
 
@@ -463,286 +395,121 @@ async function api(request, env, path) {
   if (path === '/api/sanctuary/roster' && method === 'GET') {
     const sanctuary = new URL(request.url).searchParams.get('sanctuary');
     if (!SANCTUARIES.has(sanctuary)) return json({ error: '성역을 확인해 주세요.' }, 400);
+    // 닉네임은 고정 참여자 자격을 확인할 때만 사용한다.
+    // 각 참여자 소유의 모든 캐릭터를 고유 ID로 나누어 파티·징표·비고를 조회한다.
+    // 아직 캐릭터를 등록하지 않은 참여자도 한 줄로 남긴다.
     const members = await env.DB.prepare(`
-      WITH roster AS (
-        SELECT m.sanctuary, m.nickname, p.party_number, p.slot_number, COALESCE(mm.marker, '') AS member_marker,
-          COALESCE(mc.character_id, (
-            SELECT c2.id FROM characters c2
-            WHERE c2.character_name = m.nickname COLLATE NOCASE
-              AND c2.owner_name = m.nickname COLLATE NOCASE
-              AND (SELECT COUNT(*) FROM characters matching
-                   WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
-            ORDER BY c2.id LIMIT 1
-          )) AS effective_character_id
-        FROM sanctuary_members m
-        LEFT JOIN sanctuary_party_slots p
-          ON p.sanctuary = m.sanctuary AND p.nickname = m.nickname
-        LEFT JOIN sanctuary_member_markers mm
-          ON mm.sanctuary = m.sanctuary AND mm.nickname = m.nickname
-        LEFT JOIN sanctuary_member_characters mc
-          ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
-        WHERE m.sanctuary = ?
-      )
-      SELECT roster.nickname, roster.party_number, roster.slot_number, roster.member_marker,
+      SELECT m.nickname,
         c.id AS character_id, c.character_name, c.class_name,
         c.item_level, c.naddol_k, c.server_id, c.synced_at,
+        p.party_number, p.slot_number,
+        COALESCE(cm.marker, '') AS member_marker,
         COALESCE(cn.note, '') AS character_note
-      FROM roster LEFT JOIN characters c ON c.id = roster.effective_character_id
-      LEFT JOIN sanctuary_character_notes cn
-        ON cn.sanctuary = roster.sanctuary AND cn.character_id = c.id
-      ORDER BY roster.nickname COLLATE NOCASE LIMIT 300
-    `).bind(sanctuary).all();
-    const options = await env.DB.prepare(
-      'SELECT id, owner_name, character_name, class_name, server_id FROM characters ORDER BY character_name COLLATE NOCASE LIMIT 1000'
-    ).all();
-    const partyDetails = await env.DB.prepare(
-      'SELECT party_number, note, marker FROM sanctuary_party_details WHERE sanctuary = ? ORDER BY party_number'
-    ).bind(sanctuary).all();
-    return json({ sanctuary, members: members.results, characters: options.results, parties: partyDetails.results });
-  }
-
-  // 캐릭터별 비고. 참여자 닉네임과 현재 연결된 캐릭터 ID를 서버에서 다시 확인한다.
-  // 동일 캐릭터가 파티를 이동해도 비고는 보존되며, 성역별로 독립 관리한다.
-  if (path === '/api/sanctuary/roster/character-note' && method === 'POST') {
-    const body = await readJson(request);
-    const sanctuary = body.sanctuary;
-    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
-    const note = typeof body.note === 'string' ? body.note.trim() : null;
-    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30) || note === null ||
-        note.length > 150 || /[\u0000-\u001f\u007f]/.test(note)) {
-      return json({ error: '캐릭터 비고를 확인해 주세요. (최대 150자)' }, 400);
-    }
-    const attached = await env.DB.prepare(`
-      SELECT COALESCE(mc.character_id, (
-        SELECT c.id FROM characters c
-        WHERE c.character_name = m.nickname COLLATE NOCASE
-          AND c.owner_name = m.nickname COLLATE NOCASE
-          AND (SELECT COUNT(*) FROM characters matching
-               WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
-        ORDER BY c.id LIMIT 1
-      )) AS character_id
       FROM sanctuary_members m
-      LEFT JOIN sanctuary_member_characters mc
-        ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
-      WHERE m.sanctuary = ? AND m.nickname = ?
-    `).bind(sanctuary, nickname).first();
-    if (!attached) return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
-    if (!attached.character_id) return json({ error: '비고를 저장할 캐릭터를 먼저 연결해 주세요.' }, 409);
-    if (!note) {
-      await env.DB.prepare(
-        'DELETE FROM sanctuary_character_notes WHERE sanctuary = ? AND character_id = ?'
-      ).bind(sanctuary, attached.character_id).run();
-    } else {
-      await env.DB.prepare(
-        'INSERT INTO sanctuary_character_notes (sanctuary, character_id, note, updated_by, updated_at) ' +
-        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
-        'note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-      ).bind(sanctuary, attached.character_id, note, user.nickname, now).run();
-    }
-    return json({ success: true });
+      LEFT JOIN characters c ON c.owner_name = m.nickname COLLATE NOCASE
+      LEFT JOIN sanctuary_character_party_slots p
+        ON p.sanctuary = m.sanctuary AND p.character_id = c.id
+      LEFT JOIN sanctuary_character_markers cm
+        ON cm.sanctuary = m.sanctuary AND cm.character_id = c.id
+      LEFT JOIN sanctuary_character_notes cn
+        ON cn.sanctuary = m.sanctuary AND cn.character_id = c.id
+      WHERE m.sanctuary = ?
+      ORDER BY m.nickname COLLATE NOCASE,
+        c.character_name COLLATE NOCASE, c.server_id, c.id
+      LIMIT 3000
+    `).bind(sanctuary).all();
+    return json({ sanctuary, members: members.results });
   }
 
-  if (path === '/api/sanctuary/roster/character' && method === 'POST') {
-    const body = await readJson(request);
-    const { sanctuary } = body;
-    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
-    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
-      return json({ error: '성역과 참여자를 확인해 주세요.' }, 400);
-    }
-    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
-      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
-    }
-    if (body.characterId === null) {
-      await env.DB.prepare(
-        'DELETE FROM sanctuary_member_characters WHERE sanctuary = ? AND nickname = ?'
-      ).bind(sanctuary, nickname).run();
-      return json({ success: true });
-    }
-    const characterId = Number(body.characterId);
-    if (!Number.isSafeInteger(characterId) || characterId < 1) {
-      return json({ error: '캐릭터 선택을 확인해 주세요.' }, 400);
-    }
-    const existingCharacter = await env.DB.prepare('SELECT id, owner_name FROM characters WHERE id = ?')
-      .bind(characterId).first();
-    if (!existingCharacter) return json({ error: '캐릭터가 없습니다.' }, 404);
-    // 수동 연결은 참여자와 동일한 소유자 닉네임을 가진 캐릭터만 허용한다.
-    // 과거에 다른 소유자와 연결한 데이터는 삭제하지 않고 그대로 유지한다.
-    const normalizeNickname = value => String(value || '').trim().normalize('NFC').toLocaleLowerCase('ko-KR');
-    if (normalizeNickname(existingCharacter.owner_name) !== normalizeNickname(nickname)) {
-      return json({ error: '해당 참여자 소유의 캐릭터만 연결할 수 있습니다.' }, 403);
-    }
-    const other = await env.DB.prepare(
-      'SELECT nickname FROM sanctuary_member_characters WHERE sanctuary = ? AND character_id = ? AND nickname <> ?'
-    ).bind(sanctuary, characterId, nickname).first();
-    if (other) return json({ error: '이 캐릭터는 해당 성역의 다른 참여자와 연결되어 있습니다.' }, 409);
-    await env.DB.prepare(
-      'INSERT INTO sanctuary_member_characters(sanctuary,nickname,character_id,updated_by,updated_at) ' +
-      'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
-      'character_id=excluded.character_id,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-    ).bind(sanctuary, nickname, characterId, user.nickname, now).run();
-    return json({ success: true });
-  }
-
-  // 참여 캐릭터의 파티 위치와 징표를 한 번에 저장한다.
-  // 두 변경은 D1 batch 트랜잭션으로 묶어 한쪽만 반영되지 않도록 한다.
+  // 파티·징표·비고는 실제 캐릭터 ID별로 개별 저장한다.
+  // 같은 참여자의 다른 캐릭터는 읽거나 수정하지 않는다.
   if (path === '/api/sanctuary/roster/assignment' && method === 'POST') {
     const body = await readJson(request);
     const sanctuary = body.sanctuary;
     const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    const characterId = Number(body.characterId);
     const marker = body.marker;
+    const note = typeof body.note === 'string' ? body.note.trim() : null;
     if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30) ||
-        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
-      return json({ error: '성역, 참여자 또는 징표를 확인해 주세요.' }, 400);
+        !Number.isSafeInteger(characterId) || characterId < 1 ||
+        typeof marker !== 'string' || !MARK_VALUES.has(marker) ||
+        note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note)) {
+      return json({ error: '캐릭터, 징표 또는 비고 값이 올바르지 않습니다.' }, 400);
     }
-    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
-      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
-    }
+    // 다른 참여자 또는 캐릭터의 설정을 덮어쓰지 않도록 소유자/고정 명단을 검증.
+    const owner = await env.DB.prepare(`
+      SELECT c.id, c.character_name
+      FROM characters c JOIN sanctuary_members m
+        ON m.nickname = c.owner_name COLLATE NOCASE
+      WHERE m.sanctuary = ? AND m.nickname = ? AND c.id = ?
+    `).bind(sanctuary, nickname, characterId).first();
+    if (!owner) return json({ error: '해당 참여자가 소유한 등록 캐릭터가 아닙니다.' }, 403);
 
     const unassigned = body.partyNumber === null && body.slotNumber === null;
     const partyNumber = Number(body.partyNumber);
     const slotNumber = Number(body.slotNumber);
     if (!unassigned && (!Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
         !Number.isSafeInteger(slotNumber) || slotNumber < 1 || slotNumber > 5)) {
-      return json({ error: '파티 위치는 1~4포스, 각 포스 1~2파티, 1~5번 자리 중 선택하세요.' }, 400);
-    }
-    // 비고는 같은 저장 요청에서 파티와 징표와 함께 처리한다.
-    // 구버전 클라이언트가 note를 보내지 않으면 기존 비고는 변경하지 않는다.
-    const hasNote = Object.prototype.hasOwnProperty.call(body, 'note');
-    const note = hasNote && typeof body.note === 'string' ? body.note.trim() : null;
-    if (hasNote && (note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note))) {
-      return json({ error: '캐릭터 비고를 확인해 주세요. (최대 150자)' }, 400);
-    }
-    let characterId = null;
-    if (hasNote) {
-      const attached = await env.DB.prepare(`
-        SELECT COALESCE(mc.character_id, (
-          SELECT c.id FROM characters c
-          WHERE c.character_name = m.nickname COLLATE NOCASE
-          AND c.owner_name = m.nickname COLLATE NOCASE
-            AND (SELECT COUNT(*) FROM characters matching
-                 WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
-          ORDER BY c.id LIMIT 1
-        )) AS character_id
-        FROM sanctuary_members m
-        LEFT JOIN sanctuary_member_characters mc
-          ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
-        WHERE m.sanctuary = ? AND m.nickname = ?
-      `).bind(sanctuary, nickname).first();
-      characterId = attached?.character_id ?? null;
-      if (note && !characterId) {
-        return json({ error: '비고를 저장하려면 캐릭터를 먼저 연결해 주세요.' }, 409);
-      }
+      return json({ error: '파티 위치는 1~4포스, 각 포스 1~2파티, 1~5번 자리에서 선택해 주세요.' }, 400);
     }
     if (!unassigned) {
-      const occupied = await env.DB.prepare(
-        'SELECT nickname FROM sanctuary_party_slots WHERE sanctuary = ? AND party_number = ? ' +
-        'AND slot_number = ? AND nickname <> ?'
-      ).bind(sanctuary, partyNumber, slotNumber, nickname).first();
-      if (occupied) return json({ error: `${occupied.nickname} 님이 이미 선택한 자리입니다.` }, 409);
+      const occupied = await env.DB.prepare(`
+        SELECT c.character_name FROM sanctuary_character_party_slots s
+        JOIN characters c ON c.id = s.character_id
+        WHERE s.sanctuary = ? AND s.party_number = ? AND s.slot_number = ?
+          AND s.character_id <> ?
+      `).bind(sanctuary, partyNumber, slotNumber, characterId).first();
+      if (occupied) return json({ error: `${occupied.character_name} 캐릭터가 이미 배정된 자리입니다.` }, 409);
     }
 
     const statements = [];
     if (unassigned) {
       statements.push(env.DB.prepare(
-        'DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?'
-      ).bind(sanctuary, nickname));
+        'DELETE FROM sanctuary_character_party_slots WHERE sanctuary = ? AND character_id = ?'
+      ).bind(sanctuary, characterId));
     } else {
       statements.push(env.DB.prepare(
-        'INSERT INTO sanctuary_party_slots(sanctuary,nickname,party_number,slot_number,updated_by,updated_at) ' +
-        'VALUES (?,?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+        'INSERT INTO sanctuary_character_party_slots(sanctuary,character_id,party_number,slot_number,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
         'party_number=excluded.party_number,slot_number=excluded.slot_number,' +
         'updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-      ).bind(sanctuary, nickname, partyNumber, slotNumber, user.nickname, now));
+      ).bind(sanctuary, characterId, partyNumber, slotNumber, user.nickname, now));
     }
     if (!marker) {
       statements.push(env.DB.prepare(
-        'DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?'
-      ).bind(sanctuary, nickname));
+        'DELETE FROM sanctuary_character_markers WHERE sanctuary = ? AND character_id = ?'
+      ).bind(sanctuary, characterId));
     } else {
       statements.push(env.DB.prepare(
-        'INSERT INTO sanctuary_member_markers(sanctuary,nickname,marker,updated_by,updated_at) ' +
-        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+        'INSERT INTO sanctuary_character_markers(sanctuary,character_id,marker,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
         'marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-      ).bind(sanctuary, nickname, marker, user.nickname, now));
+      ).bind(sanctuary, characterId, marker, user.nickname, now));
     }
-    // D1 batch는 트랜잭션으로 실행되어 비고·징표·파티가 따로 저장되지 않는다.
-    if (hasNote && characterId) {
-      if (!note) {
-        statements.push(env.DB.prepare(
-          'DELETE FROM sanctuary_character_notes WHERE sanctuary = ? AND character_id = ?'
-        ).bind(sanctuary, characterId));
-      } else {
-        statements.push(env.DB.prepare(
-          'INSERT INTO sanctuary_character_notes(sanctuary,character_id,note,updated_by,updated_at) ' +
-          'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
-          'note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-        ).bind(sanctuary, characterId, note, user.nickname, now));
-      }
+    if (!note) {
+      statements.push(env.DB.prepare(
+        'DELETE FROM sanctuary_character_notes WHERE sanctuary = ? AND character_id = ?'
+      ).bind(sanctuary, characterId));
+    } else {
+      statements.push(env.DB.prepare(
+        'INSERT INTO sanctuary_character_notes(sanctuary,character_id,note,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
+        'note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary, characterId, note, user.nickname, now));
     }
+    // 3개의 변경은 D1 batch 트랜잭션: 성공하거나 모두 롤백된다.
     await env.DB.batch(statements);
     return json({ success: true });
   }
 
-  if (path === '/api/sanctuary/roster/party' && method === 'POST') {
-    const body = await readJson(request);
-    const { sanctuary } = body;
-    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
-    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
-      return json({ error: '성역과 참여자를 확인해 주세요.' }, 400);
-    }
-    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
-      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
-    }
-    if (body.partyNumber === null && body.slotNumber === null) {
-      await env.DB.prepare('DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?')
-        .bind(sanctuary, nickname).run();
-      return json({ success: true });
-    }
-    // partyNumber 1~8: (1포스-1파티, 1포스-2파티, ..., 4포스-2파티)
-    const partyNumber = Number(body.partyNumber);
-    const slotNumber = Number(body.slotNumber);
-    if (!Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
-        !Number.isSafeInteger(slotNumber) || slotNumber < 1 || slotNumber > 5) {
-      return json({ error: '포스는 1~4, 각 포스의 파티는 1~2, 자리는 1~5까지 선택할 수 있습니다.' }, 400);
-    }
-    const occupied = await env.DB.prepare(
-      'SELECT nickname FROM sanctuary_party_slots WHERE sanctuary = ? AND party_number = ? ' +
-      'AND slot_number = ? AND nickname <> ?'
-    ).bind(sanctuary, partyNumber, slotNumber, nickname).first();
-    if (occupied) return json({ error: `${occupied.nickname} 님이 이미 선택한 자리입니다.` }, 409);
-    await env.DB.prepare(
-      'INSERT INTO sanctuary_party_slots(sanctuary,nickname,party_number,slot_number,updated_by,updated_at) ' +
-      'VALUES (?,?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
-      'party_number=excluded.party_number,slot_number=excluded.slot_number,' +
-      'updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-    ).bind(sanctuary, nickname, partyNumber, slotNumber, user.nickname, now).run();
-    return json({ success: true });
-  }
-
-  // 고정 참여자별 징표: 파티에 배정되기 전에도 저장 가능하며, 이동/미배정 시에도 유지.
-  if (path === '/api/sanctuary/roster/member-marker' && method === 'POST') {
-    const body = await readJson(request);
-    const sanctuary = body.sanctuary;
-    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
-    const marker = body.marker;
-    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname,30) ||
-        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
-      return json({ error: '참여자와 징표를 확인해 주세요.' }, 400);
-    }
-    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
-      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
-    }
-    if (!marker) {
-      await env.DB.prepare('DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?')
-        .bind(sanctuary,nickname).run();
-    } else {
-      await env.DB.prepare(
-        'INSERT INTO sanctuary_member_markers(sanctuary,nickname,marker,updated_by,updated_at) ' +
-        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
-        'marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-      ).bind(sanctuary,nickname,marker,user.nickname,now).run();
-    }
-    return json({success:true});
+  // 오래된 화면에서 참여자 닉네임 단위의 저장을 실행하지 못하도록 차단한다.
+  if (method === 'POST' && [
+    '/api/sanctuary/roster/character',
+    '/api/sanctuary/roster/character-note',
+    '/api/sanctuary/roster/party',
+    '/api/sanctuary/roster/member-marker'
+  ].includes(path)) {
+    return json({ error: '저장 구조가 캐릭터별로 변경되었습니다. 화면을 새로고침해 주세요.' }, 410);
   }
 
   // 고정 명단은 주차별 일정과 무관하게 유지된다. 닉네임 여러 개를 한 번에 추가할 수 있다.
@@ -775,13 +542,15 @@ async function api(request, env, path) {
       return json({ error: '성역과 참여자 닉네임을 확인해 주세요.' }, 400);
     }
     const results = await env.DB.batch([
+      env.DB.prepare('DELETE FROM sanctuary_character_party_slots WHERE sanctuary = ? AND character_id IN (SELECT id FROM characters WHERE owner_name = ? COLLATE NOCASE)').bind(sanctuary, nickname),
+      env.DB.prepare('DELETE FROM sanctuary_character_markers WHERE sanctuary = ? AND character_id IN (SELECT id FROM characters WHERE owner_name = ? COLLATE NOCASE)').bind(sanctuary, nickname),
       env.DB.prepare('DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
       env.DB.prepare('DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?').bind(sanctuary,nickname),
       env.DB.prepare('DELETE FROM sanctuary_member_characters WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
       env.DB.prepare('DELETE FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname)
     ]);
     // 다른 성역의 명단·파티와 공통 일정은 삭제하지 않는다.
-    return results[2].meta.changes ? json({ success: true }) : json({ error: '참여자를 찾을 수 없습니다.' }, 404);
+    return results[5].meta.changes ? json({ success: true }) : json({ error: '참여자를 찾을 수 없습니다.' }, 404);
   }
 
   if (path === '/api/sanctuary' && method === 'POST') {

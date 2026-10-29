@@ -961,6 +961,48 @@ $('reloadPartyRoster').addEventListener('click', async ()=> {
 // 닉네임별 숙제: 로그인 세션의 닉네임 기준으로 서버가 필터링
 // =====================================================
 let homeworkData = null;
+let homeworkOrderSaving = false;
+let draggingHomeworkCharacterId = null;
+
+// 사용자가 저장한 순서가 없으면 남툴 내림차순. 직접 정렬한 순서는 새 주에도 유지한다.
+function orderHomeworkCharacters(items, savedIds) {
+  const ranks = new Map((Array.isArray(savedIds) ? savedIds : []).map((id, index) => [Number(id), index]));
+  const collator = new Intl.Collator('ko-KR', {numeric: true, sensitivity: 'base'});
+  return [...items].sort((a, b) => {
+    const ar = ranks.get(Number(a.id));
+    const br = ranks.get(Number(b.id));
+    if (ar !== undefined || br !== undefined) {
+      if (ar === undefined) return 1;
+      if (br === undefined) return -1;
+      return ar - br;
+    }
+    return Number(b.naddolK || 0) - Number(a.naddolK || 0)
+      || collator.compare(String(a.name), String(b.name))
+      || Number(a.id) - Number(b.id);
+  });
+}
+
+async function saveHomeworkCharacterOrder(ids) {
+  if (!homeworkData || homeworkOrderSaving) return;
+  const previous = [...(homeworkData.order || [])];
+  const previousCharacters = [...homeworkData.characters];
+  homeworkOrderSaving = true;
+  homeworkData.order = [...ids];
+  homeworkData.characters = orderHomeworkCharacters(homeworkData.characters, ids);
+  renderHomework();
+  $('hwMessage').textContent = '캐릭터 순서 저장 중...';
+  try {
+    const result = await api('/api/homework/order', 'POST', {characterIds: ids});
+    homeworkData.order = result.characterIds;
+    $('hwMessage').textContent = '캐릭터 순서를 저장했습니다. 주간 초기화 후에도 유지됩니다.';
+  } catch (error) {
+    homeworkData.order = previous;
+    homeworkData.characters = previousCharacters;
+    renderHomework();
+    $('hwMessage').textContent = `순서를 저장하지 못했습니다: ${error.message}`;
+  } finally { homeworkOrderSaving = false; }
+}
+
 function resetHomeworkView() {
   homeworkData = null;
   $('hwTableView').hidden = true;
@@ -973,6 +1015,7 @@ async function loadHomework() {
   $('hwTableView').hidden = false;
   const result = await api('/api/homework');
   homeworkData = result;
+  homeworkData.characters = orderHomeworkCharacters(result.characters || [], result.order || []);
   renderHomework();
 }
 function renderHomework() {
@@ -994,7 +1037,74 @@ function renderHomework() {
   }
   for (const character of rows) {
     const row = tbody.insertRow();
-    addCell(row, character.name);
+    row.dataset.characterId = String(character.id);
+    const nameCell = row.insertCell();
+    nameCell.className = 'hw-name-cell';
+    const handle = document.createElement('span');
+    handle.className = 'hw-drag-handle';
+    handle.draggable = true;
+    handle.tabIndex = 0;
+    handle.setAttribute('role', 'button');
+    handle.setAttribute('aria-label', `${character.name} 순서 변경: 드래그하거나 방향키 위아래 사용`);
+    handle.title = '잡고 다른 캐릭터 위아래로 드래그 · 방향키 위아래로 이동';
+    handle.textContent = '⠿';
+    const name = document.createElement('span');
+    name.className = 'hw-character-name';
+    name.textContent = character.name;
+    nameCell.append(handle, name);
+    handle.addEventListener('dragstart', event => {
+      if (homeworkOrderSaving) { event.preventDefault(); return; }
+      draggingHomeworkCharacterId = Number(character.id);
+      row.classList.add('hw-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(character.id));
+    });
+    handle.addEventListener('dragend', () => {
+      draggingHomeworkCharacterId = null;
+      tbody.querySelectorAll('.hw-dragging,.hw-drag-target').forEach(el => {
+        el.classList.remove('hw-dragging', 'hw-drag-target');
+      });
+    });
+    row.addEventListener('dragover', event => {
+      if (draggingHomeworkCharacterId === null || homeworkOrderSaving) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      tbody.querySelectorAll('.hw-drag-target').forEach(el => el.classList.remove('hw-drag-target'));
+      if (draggingHomeworkCharacterId !== Number(character.id)) row.classList.add('hw-drag-target');
+    });
+    row.addEventListener('drop', event => {
+      if (draggingHomeworkCharacterId === null || homeworkOrderSaving) return;
+      event.preventDefault();
+      const dragged = draggingHomeworkCharacterId;
+      const target = Number(character.id);
+      draggingHomeworkCharacterId = null;
+      tbody.querySelectorAll('.hw-dragging,.hw-drag-target').forEach(el => {
+        el.classList.remove('hw-dragging', 'hw-drag-target');
+      });
+      if (dragged === target) return;
+      const ids = rows.map(c => Number(c.id)).filter(id => id !== dragged);
+      const i = ids.indexOf(target);
+      if (i === -1) return;
+      const after = event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+      ids.splice(i + (after ? 1 : 0), 0, dragged);
+      if (ids.every((id, index) => id === Number(rows[index].id))) return;
+      void saveHomeworkCharacterOrder(ids);
+    });
+    // 키보드만으로도 행 순서를 변경할 수 있다.
+    handle.addEventListener('keydown', event => {
+      if (homeworkOrderSaving || !['ArrowUp','ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const ids = rows.map(c => Number(c.id));
+      const i = ids.indexOf(Number(character.id));
+      const other = i + (event.key === 'ArrowUp' ? -1 : 1);
+      if (other < 0 || other >= ids.length) return;
+      [ids[i], ids[other]] = [ids[other], ids[i]];
+      void saveHomeworkCharacterOrder(ids).then(() => {
+        const nextHandle = [...$('hwRows').querySelectorAll('.hw-drag-handle')]
+          .find(el => el.getAttribute('aria-label')?.startsWith(`${character.name} 순서 변경:`));
+        nextHandle?.focus();
+      });
+    });
     addCell(row, character.className || '-');
     addCell(row, Number(character.itemLevel || 0).toLocaleString('ko-KR'));
     addCell(row, `${Number(character.naddolK || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`);

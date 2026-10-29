@@ -18,6 +18,7 @@ db.exec(`
   INSERT INTO homework_progress VALUES ('9999-12-31',1,'awakening',1,1000);
 `);
 db.exec(readFileSync(new URL('../migrations/0013_homework_od_amounts.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0014_homework_character_order.sql',import.meta.url),'utf8'));
 const token='b'.repeat(64);
 const hash=createHash('sha256').update(token).digest('hex');
 db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(hash,'슬롱',Math.floor(Date.now()/1000)+5000);

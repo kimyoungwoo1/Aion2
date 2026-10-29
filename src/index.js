@@ -267,7 +267,41 @@ async function homeworkApi(request, env, path, user, now) {
       }
       if (row.task_key && HOMEWORK_KEYS.has(row.task_key)) byId.get(row.id).completed.push(row.task_key);
     }
-    return json({weekStart:week,tasks:HOMEWORK_TASKS,characters});
+    // 숙제와 별개로 보관하는 닉네임별 수동 정렬. 주간 초기화에 포함하지 않는다.
+    const storedOrder = await env.DB.prepare(
+      'SELECT character_ids FROM homework_character_order WHERE owner_name=?'
+    ).bind(nickname).first();
+    let order = [];
+    if (storedOrder) {
+      try {
+        const parsed = JSON.parse(storedOrder.character_ids);
+        if (Array.isArray(parsed)) order = parsed.filter(Number.isSafeInteger);
+      } catch { /* 예전 잘못된 순서 데이터가 있으면 자동 정렬로 대체 */ }
+    }
+    return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order});
+  }
+
+  if (method === 'POST' && path === '/api/homework/order') {
+    const body = await readJson(request);
+    const ids = body.characterIds;
+    if (!Array.isArray(ids) || ids.length > 300 ||
+        ids.some(id => !Number.isSafeInteger(id) || id < 1) ||
+        new Set(ids).size !== ids.length) {
+      return json({error:'캐릭터 정렬 목록이 올바르지 않습니다.'},400);
+    }
+    // 모든 캐릭터가 현재 로그인 닉네임 소유인지, 빠짐/추가가 없는지 검증한다.
+    const ownedRows = await env.DB.prepare(
+      'SELECT id FROM characters WHERE owner_name=? ORDER BY id LIMIT 301'
+    ).bind(nickname).all();
+    const ownedIds = new Set(ownedRows.results.map(row => Number(row.id)));
+    if (ownedIds.size !== ids.length || ids.some(id => !ownedIds.has(id))) {
+      return json({error:'현재 로그인 닉네임의 캐릭터만 정렬할 수 있습니다. 새로고침 후 다시 시도해 주세요.'},403);
+    }
+    await env.DB.prepare(`INSERT INTO homework_character_order(owner_name,character_ids,updated_at)
+      VALUES(?,?,?) ON CONFLICT(owner_name)
+      DO UPDATE SET character_ids=excluded.character_ids,updated_at=excluded.updated_at`)
+      .bind(nickname,JSON.stringify(ids),now).run();
+    return json({success:true,characterIds:ids});
   }
 
   if (method === 'POST' && path === '/api/homework/od') {

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: permanent-membership-20261029 -->
+  <!-- UI version: am-availability-party-note-markers-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -64,6 +64,9 @@
     .all-available-row { display:flex; align-items:flex-start; gap:12px; margin-top:10px; flex-wrap:wrap; }
     .all-available-label { min-width:65px; font-size:13px; font-weight:750; color:#d0ddf3; padding-top:5px; }
     .all-available-days { display:flex; flex-wrap:wrap; align-items:center; gap:7px; flex:1; font-size:13px; }
+    .all-available-days .day-pill { font-size:14px; }
+    .all-available-days .day-pill.pm-only { background:#23375c; border-color:#48699e; color:#d5e9ff; }
+    .all-available-days .day-pill.am-only { background:#36436b; border-color:#6e78b3; color:#eff0ff; }
     .all-available-days .day-pill { padding:5px 11px; border-radius:20px; background:#254d5c; border:1px solid #467889; color:#e6fbff; font-weight:650; }
     .all-available-days .empty-days { color:var(--muted); }
     .all-available small { display:block; color:var(--muted); font-size:12px; line-height:1.5; margin-top:13px; }
@@ -74,6 +77,7 @@
     .summary-number { font-weight:800; color:#fff; }
     .schedule-cell { font-size:12px; white-space:nowrap; }
     .status-yes { color:#f3c975; }
+    .status-am { color:#d1b7ff; }
     .status-pm { color:#85c7fa; }
     .status-no { color:#9ca3af; }
     .mine-row { background:#24324a; }
@@ -83,6 +87,71 @@
     .member-chip button:hover { background:#713e4c; }
     @media(max-width:920px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(4,minmax(0,1fr)); } }
     @media(max-width:520px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .week-label{min-width:0} }
+    .sub-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 22px; }
+    .sub-tab { background:#152136; border:1px solid var(--line); color:var(--muted); font-weight:750; }
+    .sub-tab.active { background:#32415d; color:#fff; border-color:#e9be78; }
+    .roster-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:20px; }
+    .roster-metrics .stat { margin:0; }
+    .class-chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 22px; }
+    .class-chip { padding:7px 12px; background:#263652; border:1px solid #435775; border-radius:18px; font-size:13px; }
+    .roster-layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr); gap:20px; align-items:start; }
+    .roster-member { padding:14px 0; border-bottom:1px solid var(--line); }
+    .roster-member:last-child { border:0; }
+    .roster-person { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
+    .roster-person strong { font-size:16px; }
+    .roster-detail { color:var(--muted); font-size:13px; margin-top:7px; }
+    .roster-selects { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .roster-selects label { font-size:12px; color:var(--muted); }
+    .roster-selects select { padding:9px; font-size:13px; }
+    .force-grid { display:grid; grid-template-columns:1fr; gap:16px; }
+    .force-card { padding:16px; border-radius:12px; border:1px solid #516586; background:#192943; }
+    .force-title { color:var(--gold); font-size:20px; margin:0 0 13px; }
+    .force-parties { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .party-card { padding:15px; border-radius:11px; background:#111b2e; border:1px solid var(--line); margin:0; }
+    @media(max-width:1150px) { .force-parties{grid-template-columns:1fr;} }
+    @media(max-width:900px) { .force-parties{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    @media(max-width:650px) { .force-parties{grid-template-columns:1fr;} }
+    .party-card h3 { font-size:16px; margin:0 0 12px; color:var(--gold); }
+    .party-edit-fields { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; padding:0 0 14px; }
+    .party-edit-fields label { font-size:12px; color:#c9d5e9; margin:0; }
+    .party-edit-fields select,.party-edit-fields input { font-size:13px; padding:9px; margin-top:5px; }
+    .party-edit-fields button { justify-self:start; }
+    .member-marker-select { width:auto; min-width:115px; max-width:100%; padding:5px 6px; font-size:12px; margin-top:7px; }
+    .party-slot { min-width:0; }
+    .party-slot strong { word-break:break-word; }
+    .party-slot { display:flex; gap:12px; justify-content:space-between; align-items:start; padding:9px 0; border-top:1px solid #2d3b53; font-size:13px; }
+    .party-slot:first-of-type { border-top:0; }
+    .party-slot .slot-num { color:var(--muted); min-width:17px; }
+    .party-slot .slot-detail { color:var(--muted); font-size:12px; margin-top:3px; }
+    .party-slot.empty { color:#7388a5; }
+    .roster-summary { font-size:12px; color:var(--muted); line-height:1.7; }
+    @media(max-width:900px) { .roster-layout{grid-template-columns:1fr} }
+    @media(max-width:560px) { .roster-selects{grid-template-columns:1fr} .roster-metrics{grid-template-columns:1fr 1fr} }
+  
+    /* 넓은 참여 일정/파티 편성 탭 */
+    .sub-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:14px; margin:12px 0 24px; }
+    .sub-tab { width:100%; min-height:65px; padding:18px 20px; font-size:19px; font-weight:850; text-align:center; background:#17243b; border:1px solid #465875; }
+    .sub-tab.active { background:#e9be78; color:#24201a; border-color:#e9be78; box-shadow:0 5px 20px #e9be7825; }
+    .weekly-reset-note { color:#f1d5a1; border:1px solid #806540; background:#302a29; padding:12px 15px; border-radius:10px; font-size:14px; margin:14px 0 22px; }
+    /* 숙제 페이지에서는 12개 열이 가로 스크롤 없이 화면에 맞도록 확장/압축 */
+    body.homework-mode main { max-width:1510px; }
+    .homework-table { min-width:0; width:100%; table-layout:fixed; }
+    .homework-table th,.homework-table td { text-align:center; padding:10px 3px; font-size:12px; overflow-wrap:anywhere; }
+    .homework-table th { line-height:1.25; font-size:11px; }
+    .homework-table th:first-child,.homework-table td:first-child { text-align:left; width:10%; }
+    .homework-table th:nth-child(2),.homework-table td:nth-child(2) { width:7%; }
+    .homework-table th:nth-child(3),.homework-table td:nth-child(3) { width:9%; }
+    .homework-table th:nth-child(4),.homework-table td:nth-child(4) { width:9%; }
+    .homework-table .hw-toggle { width:100%; max-width:100%; min-width:0; padding:8px 1px; font-size:11px; white-space:nowrap; }
+    @media (max-width:700px) {
+      .homework-table th,.homework-table td { padding:8px 1px; font-size:10px; }
+      .homework-table th { font-size:9px; }
+      .homework-table .hw-toggle { font-size:9px; padding:7px 0; }
+    }
+    .hw-toggle.done { background:#e9be78; color:#262016; border-color:#d3a551; }
+    .hw-toggle:focus-visible { outline:3px solid #ffffff; }
+    .hw-stat { color:#e9be78; font-weight:800; }
+    @media (max-width:600px) { .sub-tabs{gap:8px} .sub-tab{font-size:16px;min-height:60px;padding:12px 6px} }
   </style>
 </head>
 <body>
@@ -111,6 +180,7 @@
         <button class="main-tab" type="button" data-section="4">4성역 · 델트라스</button>
         <button class="main-tab" type="button" data-section="3">3성역 · 무스펠</button>
         <button class="main-tab" type="button" data-section="2">2성역 · 침식</button>
+        <button class="main-tab" type="button" data-section="homework">숙제</button>
       </nav>
       <section id="characterPanel">
       <div class="sectionhead"><div><h1>아이온2 관리 대시보드</h1><p class="muted">캐릭터명과 서버를 선택하면 직업·아이템 레벨·남툴을 자동 조회합니다.</p></div><span class="tag">1단계 · 베타</span></div>
@@ -141,12 +211,15 @@
         <div class="sectionhead" style="flex-wrap:wrap;gap:16px;margin-bottom:20px">
           <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">4성역·3성역의 공통 참여자 일정은 별도 저장 없이 자동 연동됩니다. 각 성역의 고정 명단은 따로 관리하며, 2성역은 독립 운영합니다.</p></div>
           <div class="week-controls">
-            <button class="secondary small" type="button" id="prevWeek">이전 주</button>
             <span class="week-label" id="weekLabel"></span>
-            <button class="secondary small" type="button" id="nextWeek">다음 주</button>
-            <button class="secondary small" type="button" id="thisWeek">이번 주</button>
           </div>
         </div>
+        <p class="weekly-reset-note">⏰ 성역 참여 일정은 <strong>매주 수요일 오전 5시(KST)</strong> 자동으로 초기화됩니다. 고정 참여자 명단과 파티 편성은 유지되며 이전 주 일정은 보관하지 않습니다.</p>
+        <nav class="sub-tabs" aria-label="성역 상세 메뉴">
+          <button class="sub-tab active" type="button" data-sanctuary-view="schedule">참여 일정</button>
+          <button class="sub-tab" type="button" data-sanctuary-view="party">참여자 · 파티 편성</button>
+        </nav>
+        <div id="sanctuaryScheduleView">
         <div class="card">
           <div class="sectionhead"><h2>내 참여 일정</h2><span class="tag" id="scheduleNickname"></span></div>
           <p class="muted">고정 명단에 있는 참여자는 날짜별 가능 여부를 저장할 수 있습니다. 4성역·3성역에 모두 속하면 한쪽에서 저장한 내용이 두 탭에 바로 표시됩니다.</p>
@@ -157,19 +230,18 @@
             <div id="scheduleEditor" class="availability-editor"></div>
             <label for="scheduleNote">비고 (선택)</label>
             <textarea id="scheduleNote" maxlength="300" rows="2" placeholder="예: 토요일 오후 8시 이후 가능"></textarea>
-            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">이번 주 일정 초기화</button></div>
+            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">내 일정 비우기</button></div>
             <p class="message" id="scheduleMessage" role="status"></p>
           </form>
         </div>
         <div class="card">
           <div class="sectionhead"><h2>날짜별 참여 가능 인원</h2><span class="tag" id="scheduleCount"></span></div>
           <div id="scheduleSummary" class="schedule-summary"></div>
-          <p class="muted" style="font-size:13px">오전 가능: '가능' 선택 인원 · 오후 가능: '가능' 및 '오후 가능' 선택 인원</p>
+          <p class="muted" style="font-size:13px">오전 인원: '가능' 또는 '오전 가능' · 오후 인원: '가능' 또는 '오후 가능' · 미입력은 참여 인원에 포함하지 않습니다.</p>
           <div class="all-available" aria-live="polite">
             <h3>다같이 가능한 요일</h3>
-            <div class="all-available-row"><span class="all-available-label">오전</span><div class="all-available-days" id="allAvailableMorning"></div></div>
-            <div class="all-available-row"><span class="all-available-label">오후</span><div class="all-available-days" id="allAvailableAfternoon"></div></div>
-            <small>이 성역의 고정 참여자 전원이 참여 가능한 날짜만 표시합니다. 미입력 또는 불가능이 있는 날짜는 제외합니다.</small>
+            <div class="all-available-days" id="allAvailableDays"></div>
+            <small>전원이 오전·오후 모두 가능하면 (가능), 오전만 가능하면 (오전), 오후만 가능하면 (오후)로 표시합니다. 서로 가능한 시간이 다르거나 미입력이 있으면 제외합니다.</small>
           </div>
         </div>
         <div class="card">
@@ -185,12 +257,69 @@
         </div>
         <div class="card">
           <div class="sectionhead"><h2>전체 참여 일정</h2><button type="button" class="secondary small" id="reloadSchedule">새로고침</button></div>
-          <div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>닉네임</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th>토</th><th>일</th><th>비고</th><th>수정 시각</th></tr></thead><tbody id="scheduleRows"></tbody></table></div>
+          <div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>닉네임</th><th>수</th><th>목</th><th>금</th><th>토</th><th>일</th><th>월</th><th>화</th><th>비고</th><th>수정 시각</th></tr></thead><tbody id="scheduleRows"></tbody></table></div>
         </div>
+        </div>
+        <div id="sanctuaryPartyView" hidden>
+          <div class="roster-metrics">
+            <div class="stat">참여 캐릭터<strong id="partyMemberTotal">0</strong></div>
+            <div class="stat">파티 배정<strong id="partyAssignedTotal">0</strong></div>
+            <div class="stat">포스 / 파티<strong id="partyCountTotal">4포스 · 8파티</strong></div>
+          </div>
+          <div class="card">
+            <div class="sectionhead" style="flex-wrap:wrap">
+              <h2>직업 분포</h2>
+              <span class="tag" id="partyLastSynced">전투력 갱신 정보</span>
+            </div>
+            <div id="rosterClassDistribution" class="class-chips"></div>
+            <p class="roster-summary">등록된 캐릭터의 직업·아이템 레벨·남툴을 사용합니다. 캐릭터가 연결되지 않은 참여자는 아래에서 직접 선택할 수 있습니다.</p>
+          </div>
+          <div class="roster-layout">
+            <div class="card">
+              <div class="sectionhead" style="flex-wrap:wrap">
+                <h2>전체 참여 캐릭터</h2>
+                <button class="secondary small" id="reloadPartyRoster" type="button">새로고침</button>
+              </div>
+              <p class="roster-summary">현재 성역의 고정 참여자 명단과 연동돼요. 파티는 성역별로 독립적으로 저장되고, 일정 동기화에는 영향을 주지 않습니다.</p>
+              <div id="rosterMembers"></div>
+            </div>
+            <div class="card">
+              <div class="sectionhead" style="flex-wrap:wrap">
+                <h2>파티 편성</h2>
+                <span class="tag">1포스 → 2포스 → 3포스 → 4포스</span>
+              </div>
+              <p class="roster-summary">각 포스는 1파티·2파티로 구성되고, 파티당 5명까지 배정할 수 있습니다. 파티별 비고·징표와 개인별 징표를 선택해 저장할 수 있습니다. 중복 배정은 허용되지 않습니다.</p>
+              <div id="partyCards" class="force-grid"></div>
+            </div>
+          </div>
+          <p id="partyMessage" class="message" role="status"></p>
+        </div>
+      </section>
+      <section id="homeworkPanel" hidden>
+        <div class="sectionhead" style="flex-wrap:wrap;gap:14px">
+          <div><h1>숙제</h1><p class="muted">접속한 닉네임으로 등록된 캐릭터의 숙제만 표시하고 저장합니다.</p></div>
+          <span class="tag" id="hwCurrentNick">슬롱 님의 숙제</span>
+        </div>
+        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑 완료 기록은 유지됩니다. 등록 캐릭터는 유지됩니다.</p>
+        <div id="hwTableView" hidden>
+          <div class="grid">
+            <div class="stat">내 캐릭터<strong id="hwCharacterCount">0</strong></div>
+            <div class="stat">완료 숙제<strong id="hwCompletedCount">0</strong></div>
+            <div class="stat">완료율<strong id="hwCompletedPercent">0%</strong></div>
+          </div>
+          <div class="card">
+            <div class="sectionhead"><h2>이번 주 숙제 현황</h2><div class="actions" style="margin-top:0"><button class="secondary small" id="hwReload" type="button">새로고침</button></div></div>
+            <p class="muted" id="hwWeekLabel"></p>
+            <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매</th></tr></thead><tbody id="hwRows"></tbody></table></div>
+            <p class="message" id="hwMessage" role="status"></p>
+            <p class="muted" style="font-size:13px">캐릭터 관리에서 현재 로그인 닉네임으로 등록한 캐릭터만 표시됩니다. 완료/미완료 버튼을 누르면 바로 저장됩니다.</p>
+          </div>
+        </div>
+        <p class="muted" style="font-size:13px">안내: 공용 접속 코드에서는 닉네임을 임의 입력할 수 있으므로 실제 본인 인증 기능은 아닙니다.</p>
       </section>
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=permanent-membership-20261029"></script>
+  <script type="module" src="/app.js?v=am-party-note-marker-20261029"></script>
 </body>
 </html>

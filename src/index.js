@@ -231,12 +231,13 @@ async function lookupCharacter(env, characterName, serverId) {
 // 4·3성역의 같은 닉네임은 동일한 주차의 한 일정 레코드를 읽으므로, 다른 성역에서 다시 저장할 필요가 없다.
 // 2성역은 독립적이다. 성역별 비고도 별도로 저장한다.
 const SANCTUARIES = new Set(['4', '3', '2']);
-const STATUS_VALUES = new Set(['', 'yes', 'pm', 'no']);
+const STATUS_VALUES = new Set(['', 'yes', 'am', 'pm', 'no']); // 'no'는 기존 저장 데이터 호환용
+const MARK_VALUES = new Set(['','1','2','3','4','5','star','skull','moon']);
 const EMPTY_WEEK = JSON.stringify(Array(7).fill(''));
-function validMonday(value) {
+function validWednesday(value) {
   if (typeof value !== 'string' || !/^20[2-3]\d-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(value + 'T00:00:00.000Z');
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value && date.getUTCDay() === 1;
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value && date.getUTCDay() === 3;
 }
 function formatSanctuaryRow(row) {
   let statuses;
@@ -255,6 +256,97 @@ function formatSanctuaryRow(row) {
 async function sanctuaryMember(env, sanctuary, nickname) {
   return env.DB.prepare('SELECT nickname FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?')
     .bind(sanctuary, nickname).first();
+}
+
+// 한국시간 수요일 05:00을 기준으로 새로운 주를 시작합니다.
+// UTC+4로 날짜를 계산하면 수요일 00:00~04:59 KST에는 지난 주를 유지합니다.
+function currentWeekStart(timestamp = Date.now()) {
+  const korea = new Date(timestamp + 4 * 60 * 60 * 1000);
+  const utcDay = korea.getUTCDay();
+  korea.setUTCDate(korea.getUTCDate() - (utcDay + 4) % 7);
+  return korea.toISOString().slice(0, 10);
+}
+
+// 이전 주의 데이터는 기록하지 않는다. 고정 명단, 파티 편성 및 캐릭터는 유지한다.
+async function cleanOldWeeklyData(env, week = currentWeekStart()) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(week),
+    env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(week),
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week)
+  ]);
+}
+
+const HOMEWORK_TASKS = Object.freeze([
+  { key: 'abyss', label: '어비스회랑' },
+  { key: 'awakening', label: '각성전' },
+  { key: 'rudra', label: '루드라' },
+  { key: 'invasion', label: '침식' },
+  { key: 'muspel', label: '무스펠' },
+  { key: 'deltras', label: '델트라스' },
+  { key: 'trial', label: '시련' },
+  { key: 'craft', label: '오드구매' }
+]);
+const HOMEWORK_KEYS = new Set(HOMEWORK_TASKS.map(x => x.key));
+// 현재 로그인 세션의 닉네임만 사용한다. 클라이언트가 보내는 닉네임은 신뢰하지 않는다.
+// 주의: 공용 접속 코드 로그인은 닉네임 자체의 소유권을 증명하지 못한다.
+async function homeworkApi(request, env, path, user, now) {
+  const method = request.method;
+  const nickname = user.nickname;
+
+  if (method === 'GET' && path === '/api/homework') {
+    const week = currentWeekStart();
+    await cleanOldWeeklyData(env, week);
+    const rows = await env.DB.prepare(`
+      SELECT c.id,c.character_name,c.server_id,c.class_name,c.item_level,c.naddol_k,
+             h.task_key
+      FROM characters c
+      LEFT JOIN homework_progress h ON h.character_id=c.id AND h.completed=1
+        AND ((h.task_key='abyss' AND h.week_start='1970-01-01')
+          OR (h.task_key<>'abyss' AND h.week_start=?))
+      WHERE c.owner_name = ?
+      ORDER BY c.character_name COLLATE NOCASE,h.task_key
+      LIMIT 2000
+    `).bind(week,nickname).all();
+    const characters = [];
+    const byId = new Map();
+    for (const row of rows.results) {
+      if (!byId.has(row.id)) {
+        const character = {id:row.id,name:row.character_name,serverId:row.server_id,
+          className:row.class_name,itemLevel:row.item_level,naddolK:row.naddol_k,completed:[]};
+        byId.set(row.id,character);
+        characters.push(character);
+      }
+      if (row.task_key && HOMEWORK_KEYS.has(row.task_key)) byId.get(row.id).completed.push(row.task_key);
+    }
+    return json({weekStart:week,tasks:HOMEWORK_TASKS,characters});
+  }
+
+  if (method === 'POST' && path === '/api/homework') {
+    const body = await readJson(request);
+    const characterId = Number(body.characterId);
+    if (!Number.isSafeInteger(characterId) || characterId <= 0 || !HOMEWORK_KEYS.has(body.taskKey) ||
+        typeof body.completed !== 'boolean') return json({error:'숙제 입력 값을 확인하세요.'},400);
+    const week = currentWeekStart();
+    await cleanOldWeeklyData(env,week);
+    const recordWeek = body.taskKey === 'abyss' ? '1970-01-01' : week;
+    // 서버 측 소유자 검증: 남의 characterId로 요청을 조작해도 변경되지 않는다.
+    const character = await env.DB.prepare('SELECT id FROM characters WHERE id=? AND owner_name=?')
+      .bind(characterId,nickname).first();
+    if (!character) return json({error:'현재 로그인 닉네임의 캐릭터만 수정할 수 있습니다.'},403);
+    if (body.completed) {
+      await env.DB.prepare(`INSERT INTO homework_progress(week_start,character_id,task_key,completed,updated_at)
+        SELECT ?,id,?,1,? FROM characters WHERE id=? AND owner_name=?
+        ON CONFLICT(week_start,character_id,task_key) DO UPDATE SET completed=1,updated_at=excluded.updated_at`)
+        .bind(recordWeek,body.taskKey,now,characterId,nickname).run();
+    } else {
+      await env.DB.prepare(`DELETE FROM homework_progress WHERE week_start=? AND character_id=?
+          AND task_key=? AND EXISTS(SELECT 1 FROM characters WHERE id=? AND owner_name=?)`)
+        .bind(recordWeek,characterId,body.taskKey,characterId,nickname).run();
+    }
+    return json({success:true,weekStart:week});
+  }
+
+  return json({error:'지원하지 않는 숙제 API입니다.'},404);
 }
 
 async function api(request, env, path) {
@@ -279,9 +371,10 @@ async function api(request, env, path) {
     await env.DB.prepare(
       'INSERT INTO sessions (token_hash, nickname, created_at, expires_at) VALUES (?, ?, ?, ?)'
     ).bind(await tokenHash(token), body.nickname.trim(), now, now + SESSION_AGE).run();
-    return json({ nickname: body.nickname.trim() }, 200, {
+    const response = json({ nickname: body.nickname.trim() }, 200, {
       'Set-Cookie': sessionCookie(request, token, SESSION_AGE)
     });
+    return response;
   }
 
   if (method === 'POST' && path === '/api/logout') {
@@ -290,9 +383,10 @@ async function api(request, env, path) {
       await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?')
         .bind(await tokenHash(token)).run();
     }
-    return json({ success: true }, 200, {
+    const response = json({ success: true }, 200, {
       'Set-Cookie': sessionCookie(request, '', 0)
     });
+    return response;
   }
 
   const user = await currentUser(request, env);
@@ -306,15 +400,18 @@ async function api(request, env, path) {
     return json({ servers: AION2_SERVERS });
   }
 
+  if (path.startsWith('/api/homework')) return homeworkApi(request, env, path, user, now);
+
 
   // 이번 주 일정을 입력하지 않은 사람도 고정 명단에서 항상 보이게 한다.
   if (path === '/api/sanctuary' && method === 'GET') {
     const url = new URL(request.url);
     const sanctuary = url.searchParams.get('sanctuary');
     const weekStart = url.searchParams.get('weekStart');
-    if (!SANCTUARIES.has(sanctuary) || !validMonday(weekStart)) {
-      return json({ error: '성역 또는 주차가 올바르지 않습니다.' }, 400);
+    if (!SANCTUARIES.has(sanctuary) || !validWednesday(weekStart) || weekStart !== currentWeekStart()) {
+      return json({ error: '성역 또는 주차가 올바르지 않습니다. 이번 주 일정만 관리할 수 있습니다.' }, 400);
     }
+    await cleanOldWeeklyData(env);
     let rows;
     if (sanctuary === '4' || sanctuary === '3') {
       // 공통 닉네임은 동일한 shared 레코드를 조회한다.
@@ -346,6 +443,155 @@ async function api(request, env, path) {
     });
   }
 
+  // 같은 고정 참여 명단을 활용해 성역별 캐릭터 및 파티를 별도로 관리한다.
+  // 4/3 일정 동기화와는 무관한 영구 편성 정보이다.
+  if (path === '/api/sanctuary/roster' && method === 'GET') {
+    const sanctuary = new URL(request.url).searchParams.get('sanctuary');
+    if (!SANCTUARIES.has(sanctuary)) return json({ error: '성역을 확인해 주세요.' }, 400);
+    const members = await env.DB.prepare(`
+      WITH roster AS (
+        SELECT m.nickname, p.party_number, p.slot_number, p.marker AS member_marker,
+          COALESCE(mc.character_id, (
+            SELECT c2.id FROM characters c2
+            WHERE c2.character_name = m.nickname COLLATE NOCASE
+              AND (SELECT COUNT(*) FROM characters matching
+                   WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
+            ORDER BY c2.id LIMIT 1
+          )) AS effective_character_id
+        FROM sanctuary_members m
+        LEFT JOIN sanctuary_party_slots p
+          ON p.sanctuary = m.sanctuary AND p.nickname = m.nickname
+        LEFT JOIN sanctuary_member_characters mc
+          ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
+        WHERE m.sanctuary = ?
+      )
+      SELECT roster.nickname, roster.party_number, roster.slot_number, roster.member_marker,
+        c.id AS character_id, c.character_name, c.class_name,
+        c.item_level, c.naddol_k, c.server_id, c.synced_at
+      FROM roster LEFT JOIN characters c ON c.id = roster.effective_character_id
+      ORDER BY roster.nickname COLLATE NOCASE LIMIT 300
+    `).bind(sanctuary).all();
+    const options = await env.DB.prepare(
+      'SELECT id, owner_name, character_name, class_name, server_id FROM characters ORDER BY character_name COLLATE NOCASE LIMIT 1000'
+    ).all();
+    const partyDetails = await env.DB.prepare(
+      'SELECT party_number, note, marker FROM sanctuary_party_details WHERE sanctuary = ? ORDER BY party_number'
+    ).bind(sanctuary).all();
+    return json({ sanctuary, members: members.results, characters: options.results, parties: partyDetails.results });
+  }
+
+  if (path === '/api/sanctuary/roster/character' && method === 'POST') {
+    const body = await readJson(request);
+    const { sanctuary } = body;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
+      return json({ error: '성역과 참여자를 확인해 주세요.' }, 400);
+    }
+    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
+      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
+    }
+    if (body.characterId === null) {
+      await env.DB.prepare(
+        'DELETE FROM sanctuary_member_characters WHERE sanctuary = ? AND nickname = ?'
+      ).bind(sanctuary, nickname).run();
+      return json({ success: true });
+    }
+    const characterId = Number(body.characterId);
+    if (!Number.isSafeInteger(characterId) || characterId < 1) {
+      return json({ error: '캐릭터 선택을 확인해 주세요.' }, 400);
+    }
+    const existingCharacter = await env.DB.prepare('SELECT id FROM characters WHERE id = ?')
+      .bind(characterId).first();
+    if (!existingCharacter) return json({ error: '캐릭터가 없습니다.' }, 404);
+    const other = await env.DB.prepare(
+      'SELECT nickname FROM sanctuary_member_characters WHERE sanctuary = ? AND character_id = ? AND nickname <> ?'
+    ).bind(sanctuary, characterId, nickname).first();
+    if (other) return json({ error: '이 캐릭터는 해당 성역의 다른 참여자와 연결되어 있습니다.' }, 409);
+    await env.DB.prepare(
+      'INSERT INTO sanctuary_member_characters(sanctuary,nickname,character_id,updated_by,updated_at) ' +
+      'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+      'character_id=excluded.character_id,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+    ).bind(sanctuary, nickname, characterId, user.nickname, now).run();
+    return json({ success: true });
+  }
+
+  if (path === '/api/sanctuary/roster/party' && method === 'POST') {
+    const body = await readJson(request);
+    const { sanctuary } = body;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
+      return json({ error: '성역과 참여자를 확인해 주세요.' }, 400);
+    }
+    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
+      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
+    }
+    if (body.partyNumber === null && body.slotNumber === null) {
+      await env.DB.prepare('DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?')
+        .bind(sanctuary, nickname).run();
+      return json({ success: true });
+    }
+    // partyNumber 1~8: (1포스-1파티, 1포스-2파티, ..., 4포스-2파티)
+    const partyNumber = Number(body.partyNumber);
+    const slotNumber = Number(body.slotNumber);
+    if (!Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
+        !Number.isSafeInteger(slotNumber) || slotNumber < 1 || slotNumber > 5) {
+      return json({ error: '포스는 1~4, 각 포스의 파티는 1~2, 자리는 1~5까지 선택할 수 있습니다.' }, 400);
+    }
+    const occupied = await env.DB.prepare(
+      'SELECT nickname FROM sanctuary_party_slots WHERE sanctuary = ? AND party_number = ? ' +
+      'AND slot_number = ? AND nickname <> ?'
+    ).bind(sanctuary, partyNumber, slotNumber, nickname).first();
+    if (occupied) return json({ error: `${occupied.nickname} 님이 이미 선택한 자리입니다.` }, 409);
+    await env.DB.prepare(
+      'INSERT INTO sanctuary_party_slots(sanctuary,nickname,party_number,slot_number,updated_by,updated_at) ' +
+      'VALUES (?,?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+      'party_number=excluded.party_number,slot_number=excluded.slot_number,' +
+      'updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+    ).bind(sanctuary, nickname, partyNumber, slotNumber, user.nickname, now).run();
+    return json({ success: true });
+  }
+
+  // 파티별 비고와 파티 대표 징표를 저장한다. (성역·파티별 영구 보관)
+  if (path === '/api/sanctuary/roster/party-details' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const partyNumber = Number(body.partyNumber);
+    const note = typeof body.note === 'string' ? body.note.trim() : null;
+    const marker = body.marker;
+    if (!SANCTUARIES.has(sanctuary) || !Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
+        note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note) ||
+        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
+      return json({ error: '파티 비고 또는 징표 입력을 확인해 주세요.' }, 400);
+    }
+    if (!note && !marker) {
+      await env.DB.prepare('DELETE FROM sanctuary_party_details WHERE sanctuary = ? AND party_number = ?')
+        .bind(sanctuary, partyNumber).run();
+    } else {
+      await env.DB.prepare(
+        'INSERT INTO sanctuary_party_details (sanctuary, party_number, note, marker, updated_by, updated_at) ' +
+        'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary,party_number) DO UPDATE SET ' +
+        'note=excluded.note,marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary, partyNumber, note, marker, user.nickname, now).run();
+    }
+    return json({ success: true });
+  }
+
+  // 파티에 배정된 사람마다 개별 징표를 추가할 수 있다.
+  if (path === '/api/sanctuary/roster/member-marker' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    const marker = body.marker;
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname,30) ||
+        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
+      return json({ error: '참여자와 징표를 확인해 주세요.' }, 400);
+    }
+    const result = await env.DB.prepare(
+      'UPDATE sanctuary_party_slots SET marker = ?, updated_by = ?, updated_at = ? WHERE sanctuary = ? AND nickname = ?'
+    ).bind(marker, user.nickname, now, sanctuary, nickname).run();
+    return result.meta.changes ? json({success:true}) : json({error:'파티에 배정된 참여자가 아닙니다.'},404);
+  }
+
   // 고정 명단은 주차별 일정과 무관하게 유지된다. 닉네임 여러 개를 한 번에 추가할 수 있다.
   if (path === '/api/sanctuary/members' && method === 'POST') {
     const body = await readJson(request);
@@ -375,11 +621,13 @@ async function api(request, env, path) {
     if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
       return json({ error: '성역과 참여자 닉네임을 확인해 주세요.' }, 400);
     }
-    const result = await env.DB.prepare(
-      'DELETE FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?'
-    ).bind(sanctuary, nickname).run();
-    // 다른 성역의 참여자 기록과 공통 일정은 삭제하지 않는다.
-    return result.meta.changes ? json({ success: true }) : json({ error: '참여자를 찾을 수 없습니다.' }, 404);
+    const results = await env.DB.batch([
+      env.DB.prepare('DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
+      env.DB.prepare('DELETE FROM sanctuary_member_characters WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
+      env.DB.prepare('DELETE FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname)
+    ]);
+    // 다른 성역의 명단·파티와 공통 일정은 삭제하지 않는다.
+    return results[2].meta.changes ? json({ success: true }) : json({ error: '참여자를 찾을 수 없습니다.' }, 404);
   }
 
   if (path === '/api/sanctuary' && method === 'POST') {
@@ -388,13 +636,15 @@ async function api(request, env, path) {
     const weekStart = body.weekStart;
     const statuses = body.statuses;
     const note = typeof body.note === 'string' ? body.note.trim() : '';
-    if (!SANCTUARIES.has(sanctuary) || !validMonday(weekStart) ||
+    if (!SANCTUARIES.has(sanctuary) || !validWednesday(weekStart) ||
         !Array.isArray(statuses) || statuses.length !== 7 ||
         !statuses.every(value => typeof value === 'string' && STATUS_VALUES.has(value)) ||
         typeof body.note !== 'string' || note.length > 300 ||
         /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) {
       return json({ error: '일정 입력 값을 확인해 주세요.' }, 400);
     }
+    if (weekStart !== currentWeekStart()) return json({error:'이번 주 일정만 저장할 수 있습니다.'},400);
+    await cleanOldWeeklyData(env);
     if (!(await sanctuaryMember(env, sanctuary, user.nickname))) {
       return json({ error: '해당 성역의 고정 참여자 명단에 로그인 닉네임을 먼저 추가해 주세요.' }, 403);
     }
@@ -498,6 +748,11 @@ async function api(request, env, path) {
 }
 
 export default {
+  // Cloudflare Cron: UTC 화요일 20:00 = 한국시간 수요일 05:00
+  async scheduled(controller, env) {
+    if (!env.DB) throw new Error('D1 DB 바인딩이 없습니다.');
+    await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime));
+  },
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
@@ -516,7 +771,7 @@ export default {
         return json({ error: error.message }, 400);
       }
       if (String(error?.message).includes('UNIQUE constraint failed')) {
-        return json({ error: '이 서버에 같은 캐릭터명이 이미 등록되어 있습니다.' }, 409);
+        return json({ error: '중복 배정 또는 중복 캐릭터 등록입니다. 기존 선택을 확인해 주세요.' }, 409);
       }
       console.error('API failure', error);
       return json({ error: '서버 오류가 발생했습니다.' }, 500);

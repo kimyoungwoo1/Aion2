@@ -54,6 +54,7 @@ async function api(path, method = 'GET', body) {
 
 function showApp(nickname) {
   user = { nickname };
+  resetHomeworkView();
   $('loginView').hidden = true;
   $('appView').hidden = false;
   $('logout').hidden = false;
@@ -62,6 +63,7 @@ function showApp(nickname) {
 
 function showLogin() {
   user = null;
+  resetHomeworkView();
   $('loginView').hidden = false;
   $('appView').hidden = true;
   $('logout').hidden = true;
@@ -240,24 +242,42 @@ $('refresh').addEventListener('click', () => loadCharacters().catch(error => {
 // 성역 일정: 4 델트라스 / 3 무스펠 / 2 침식 독립 관리
 // =====================================================
 const sanctuaryNames = { '4': '4성역 · 델트라스', '3': '3성역 · 무스펠', '2': '2성역 · 침식' };
-const weekDayNames = ['월', '화', '수', '목', '금', '토', '일'];
-const availabilityLabels = { '': '미입력', yes: '가능', pm: '오후 가능', no: '불가능' };
+const weekDayNames = ['수', '목', '금', '토', '일', '월', '화'];
+const availabilityLabels = { '': '미입력', am: '오전 가능', pm: '오후 가능', yes: '가능', no: '불가능' };
+const availabilityInputOptions = [['', '미입력'], ['am', '오전 가능'], ['pm', '오후 가능'], ['yes', '가능']];
 let activeSection = 'characters';
-let activeWeek = mondayFor(seoulToday());
+let activeWeek = wednesdayFor(seoulResetDay());
 let sanctuaryRows = [];
 let sanctuaryIsMember = false;
+let activeSanctuaryView = 'schedule';
+let sanctuaryPartyRows = [];
+let sanctuaryPartyCharacters = [];
+let sanctuaryPartyDetails = [];
+const PARTY_MARKS = [['', '징표 없음'], ['1','1'], ['2','2'], ['3','3'], ['4','4'], ['5','5'], ['star','★ 별'], ['skull','☠ 해골'], ['moon','☾ 달']];
+const PARTY_MARK_SYMBOLS = { '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', star:'★', skull:'☠', moon:'☾' };
+function appendMarkOptions(select) {
+  for (const [value, label] of PARTY_MARKS) select.add(new Option(label, value));
+}
+function markText(value) { return PARTY_MARK_SYMBOLS[value] || ''; }
+const FORCE_COUNT = 4;
+const PARTIES_PER_FORCE = 2;
+const PARTY_CAPACITY = 5;
+const TOTAL_PARTIES = FORCE_COUNT * PARTIES_PER_FORCE;
 
-function seoulToday() {
-  return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+
+// 한국시간 수요일 05:00을 주간 경계로 취급합니다.
+// 05:00 이전의 수요일은 아직 직전 주입니다.
+function seoulResetDay() {
+  return new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10);
 }
 function shiftDay(date, days) {
   const d = new Date(date + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-function mondayFor(date) {
+function wednesdayFor(date) {
   const d = new Date(date + 'T00:00:00Z');
-  return shiftDay(date, -((d.getUTCDay() + 6) % 7));
+  return shiftDay(date, -((d.getUTCDay() + 4) % 7));
 }
 function shortDate(date) {
   return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
@@ -277,7 +297,7 @@ function createAvailabilityEditor() {
     const select = document.createElement('select');
     select.id = `avail-${idx}`;
     select.name = `day-${idx}`;
-    for (const [value, text] of Object.entries(availabilityLabels)) select.add(new Option(text, value));
+    for (const [value, text] of availabilityInputOptions) select.add(new Option(text, value));
     wrap.append(label, select);
     container.append(wrap);
   });
@@ -287,35 +307,39 @@ function createAvailabilityEditor() {
 function getMyRow() {
   return sanctuaryRows.find(row => row.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR'));
 }
-// 현재 성역에 등록된 전원이 참여할 수 있는 요일을 계산한다.
-// 미입력은 '가능'으로 간주하지 않아 과도한 참가 인원 표시를 방지한다.
+// 같은 성역의 전원이 특정 시간에 참여할 수 있어야만 표시한다.
+// 오전: '가능' 또는 '오전 가능' / 오후: '가능' 또는 '오후 가능'.
+// 오전과 오후 모두 가능할 때만 '가능'으로 표시하며, 시간대가 엇갈리면 제외한다.
 function calculateCommonAvailability(rows) {
-  const morning = [];
-  const afternoon = [];
-  if (!rows.length) return { morning, afternoon };
+  const available = [];
+  if (!rows.length) return available;
   for (let day = 0; day < 7; day++) {
-    if (rows.every(row => row.statuses[day] === 'yes')) morning.push(day);
-    if (rows.every(row => row.statuses[day] === 'yes' || row.statuses[day] === 'pm')) afternoon.push(day);
+    const statuses = rows.map(row => row.statuses[day]);
+    const morning = statuses.every(status => status === 'yes' || status === 'am');
+    const afternoon = statuses.every(status => status === 'yes' || status === 'pm');
+    if (morning && afternoon) available.push({index:day, kind:'yes'});
+    else if (morning) available.push({index:day, kind:'am'});
+    else if (afternoon) available.push({index:day, kind:'pm'});
   }
-  return { morning, afternoon };
+  return available;
 }
-
-function renderCommonDays(containerId, indices, dates) {
-  const target = $(containerId);
+function renderCommonDays(available, dates) {
+  const target = $('allAvailableDays');
   target.replaceChildren();
-  if (!indices.length) {
+  if (!available.length) {
     const empty = document.createElement('span');
     empty.className = 'empty-days';
-    empty.textContent = '없음';
+    empty.textContent = '다같이 가능한 요일이 없습니다.';
     target.append(empty);
     return;
   }
-  indices.forEach(idx => {
-    const day = document.createElement('span');
-    day.className = 'day-pill';
-    day.textContent = `${weekDayNames[idx]} ${shortDate(dates[idx])}`;
-    target.append(day);
-  });
+  for (const entry of available) {
+    const pill = document.createElement('span');
+    pill.className = 'day-pill' + (entry.kind === 'pm' ? ' pm-only' : entry.kind === 'am' ? ' am-only' : '');
+    const status = entry.kind === 'yes' ? '가능' : entry.kind === 'am' ? '오전' : '오후';
+    pill.textContent = `${weekDayNames[entry.index]}요일 ${shortDate(dates[entry.index])} (${status})`;
+    target.append(pill);
+  }
 }
 
 function renderSanctuary() {
@@ -328,7 +352,12 @@ function renderSanctuary() {
   }
   $('scheduleNickname').textContent = `${user.nickname} 님`;
   const mineStatuses = mine?.statuses || Array(7).fill('');
-  mineStatuses.forEach((status, index) => { $(`avail-${index}`).value = status; });
+  mineStatuses.forEach((status, index) => {
+    const select = $(`avail-${index}`);
+    // 기존 '불가능' 저장값은 소실되지 않도록, 해당 사용자에게만 이전 선택지를 표시.
+    if (status === 'no') select.add(new Option('불가능 (기존 값)', 'no'));
+    select.value = status;
+  });
   $('scheduleNote').value = mine?.note || '';
   $('saveSchedule').disabled = !sanctuaryIsMember;
   $('clearSchedule').disabled = !sanctuaryIsMember;
@@ -357,7 +386,9 @@ function renderSanctuary() {
   summary.replaceChildren();
   weekDates().forEach((date, idx) => {
     const yes = sanctuaryRows.filter(row => row.statuses[idx] === 'yes').length;
+    const am = sanctuaryRows.filter(row => row.statuses[idx] === 'am').length;
     const pm = sanctuaryRows.filter(row => row.statuses[idx] === 'pm').length;
+    const notEntered = sanctuaryRows.filter(row => row.statuses[idx] === '').length;
     const no = sanctuaryRows.filter(row => row.statuses[idx] === 'no').length;
     const tile = document.createElement('div');
     const day = document.createElement('div');
@@ -366,18 +397,16 @@ function renderSanctuary() {
     const content = document.createElement('div');
     content.className = 'sumcount';
     const morning = document.createElement('div');
-    morning.textContent = `오전: ${yes}명`;
+    morning.textContent = `오전: ${yes + am}명`;
     const afternoon = document.createElement('div');
     afternoon.textContent = `오후: ${yes + pm}명`;
     const unavailable = document.createElement('div');
-    unavailable.textContent = `불가: ${no}명`;
+    unavailable.textContent = `미입력: ${notEntered}명` + (no ? ` · 불가: ${no}명` : '');
     content.append(morning, afternoon, unavailable);
     tile.append(day, content);
     summary.append(tile);
   });
-  const common = calculateCommonAvailability(sanctuaryRows);
-  renderCommonDays('allAvailableMorning', common.morning, weekDates());
-  renderCommonDays('allAvailableAfternoon', common.afternoon, weekDates());
+  renderCommonDays(calculateCommonAvailability(sanctuaryRows), weekDates());
   const body = $('scheduleRows');
   body.replaceChildren();
   if (!sanctuaryRows.length) {
@@ -391,14 +420,15 @@ function renderSanctuary() {
     addCell(row, person.nickname);
     person.statuses.forEach(status => {
       const cell = addCell(row, availabilityLabels[status] || '미입력');
-      cell.className = 'schedule-cell ' + ({yes:'status-yes',pm:'status-pm',no:'status-no'}[status] || '');
+      cell.className = 'schedule-cell ' + ({yes:'status-yes',am:'status-am',pm:'status-pm',no:'status-no'}[status] || '');
     });
     addCell(row, person.note || '-');
     addCell(row, person.updatedAt ? new Date(person.updatedAt * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}) : '-');
   }
 }
 async function loadSanctuary() {
-  if (!user || activeSection === 'characters') return;
+  if (!user || !['4','3','2'].includes(activeSection)) return;
+  syncCurrentWeek();
   const sectionWhenRequested = activeSection;
   const weekWhenRequested = activeWeek;
   const query = new URLSearchParams({ sanctuary: sectionWhenRequested, weekStart: weekWhenRequested });
@@ -410,35 +440,52 @@ async function loadSanctuary() {
 }
 async function switchSection(section) {
   activeSection = section;
+  document.body.classList.toggle('homework-mode', section === 'homework');
   document.querySelectorAll('[data-section]').forEach(button => {
     button.classList.toggle('active', button.dataset.section === section);
     button.setAttribute('aria-selected', button.dataset.section === section ? 'true' : 'false');
   });
   $('characterPanel').hidden = section !== 'characters';
-  $('sanctuaryPanel').hidden = section === 'characters';
+  $('sanctuaryPanel').hidden = !['4','3','2'].includes(section);
+  $('homeworkPanel').hidden = section !== 'homework';
+  if (section === 'homework') {
+    try { await loadHomework(); }
+    catch(error) { $('hwMessage').textContent = error.message; }
+    return;
+  }
   if (section !== 'characters') {
     $('sanctuaryTitle').textContent = sanctuaryNames[section];
     $('scheduleMessage').textContent = '';
-    try { await loadSanctuary(); }
-    catch (error) { $('scheduleMessage').textContent = error.message; }
+    updateSanctuaryView();
+    try {
+      await loadSanctuary();
+      if (activeSanctuaryView === 'party') await loadPartyRoster();
+    } catch (error) {
+      (activeSanctuaryView === 'party' ? $('partyMessage') : $('scheduleMessage')).textContent = error.message;
+    }
   }
 }
 
 document.querySelectorAll('[data-section]').forEach(button => {
   button.addEventListener('click', () => switchSection(button.dataset.section));
 });
-async function moveWeek(days) {
-  activeWeek = shiftDay(activeWeek, days);
-  $('scheduleMessage').textContent = '';
-  try { await loadSanctuary(); }
-  catch (error) { $('scheduleMessage').textContent = error.message; }
+// 이번 주만 유지: 매주 수요일 오전 5시(KST)에 새 주차로 전환한다.
+function syncCurrentWeek() {
+  const current = wednesdayFor(seoulResetDay());
+  if (current === activeWeek) return false;
+  activeWeek = current;
+  return true;
 }
-$('prevWeek').addEventListener('click', () => moveWeek(-7));
-$('nextWeek').addEventListener('click', () => moveWeek(7));
-$('thisWeek').addEventListener('click', () => {
-  activeWeek = mondayFor(seoulToday());
-  moveWeek(0);
-});
+// 사이트를 수요일 오전 5시에도 계속 열어 놓았으면 다음 주로 전환한다.
+setInterval(async () => {
+  if (!syncCurrentWeek() || !user) return;
+  if (['4','3','2'].includes(activeSection)) {
+    try { await loadSanctuary(); } catch(e) { $('scheduleMessage').textContent = e.message; }
+  }
+  if (activeSection === 'homework') {
+    try { await loadHomework(); } catch(e) { $('hwMessage').textContent = e.message; }
+  }
+}, 60000);
 $('reloadSchedule').addEventListener('click', async () => {
   try { await loadSanctuary(); $('scheduleMessage').textContent = ''; }
   catch (error) { $('scheduleMessage').textContent = error.message; }
@@ -518,3 +565,315 @@ async function removeMember(nickname) {
     $('membersMessage').textContent = `${nickname} 님을 이 성역 명단에서 제외했습니다.`;
   } catch (error) { $('membersMessage').textContent = error.message; }
 }
+
+// =====================================================
+// 성역별 고정 참여 캐릭터 / 독립 파티 편성
+// =====================================================
+function updateSanctuaryView() {
+  $('sanctuaryScheduleView').hidden = activeSanctuaryView !== 'schedule';
+  $('sanctuaryPartyView').hidden = activeSanctuaryView !== 'party';
+  document.querySelectorAll('[data-sanctuary-view]').forEach(button => {
+    button.classList.toggle('active', button.dataset.sanctuaryView === activeSanctuaryView);
+    button.setAttribute('aria-selected', String(button.dataset.sanctuaryView === activeSanctuaryView));
+  });
+}
+
+document.querySelectorAll('[data-sanctuary-view]').forEach(button => {
+  button.addEventListener('click', async () => {
+    activeSanctuaryView = button.dataset.sanctuaryView;
+    updateSanctuaryView();
+    if (activeSanctuaryView === 'party') {
+      try { await loadPartyRoster(); }
+      catch (error) { $('partyMessage').textContent = error.message; }
+    }
+  });
+});
+
+async function loadPartyRoster() {
+  if (!user || !['4','3','2'].includes(activeSection)) return;
+  const requestedSection = activeSection;
+  const result = await api('/api/sanctuary/roster?sanctuary=' + encodeURIComponent(requestedSection));
+  if (activeSection !== requestedSection) return;
+  sanctuaryPartyRows = result.members || [];
+  sanctuaryPartyCharacters = result.characters || [];
+  sanctuaryPartyDetails = result.parties || [];
+  $('partyMessage').textContent = '';
+  renderPartyRoster();
+}
+
+function memberInfo(member) {
+  if (!member.character_id) return '캐릭터 연결 필요';
+  const level = Number(member.item_level || 0).toLocaleString('ko-KR');
+  const power = Number(member.naddol_k || 0).toLocaleString('ko-KR', { maximumFractionDigits:1 });
+  return `${member.character_name} · ${member.class_name || '-'} · Lv ${level} · ${power}k`;
+}
+
+function partyPlace(member) {
+  return member.party_number && member.slot_number ? `${member.party_number}:${member.slot_number}` : '';
+}
+function partyLabel(partyNumber) {
+  return `${Math.ceil(partyNumber / PARTIES_PER_FORCE)}포스 · ${((partyNumber - 1) % PARTIES_PER_FORCE) + 1}파티`;
+}
+
+function renderPartyRoster() {
+  const rows = sanctuaryPartyRows;
+  const assigned = rows.filter(row => row.party_number != null);
+  $('partyMemberTotal').textContent = `${rows.length}명`;
+  $('partyAssignedTotal').textContent = `${assigned.length}명`;
+  $('partyCountTotal').textContent = `${FORCE_COUNT}포스 · ${TOTAL_PARTIES}파티`;
+  const times = rows.map(row => Number(row.synced_at) || 0).filter(Boolean);
+  $('partyLastSynced').textContent = times.length
+    ? `최근 전투력 갱신: ${new Date(Math.max(...times) * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'})}`
+    : '전투력 갱신 정보 없음';
+
+  const dist = new Map();
+  rows.forEach(row => { if (row.class_name) dist.set(row.class_name, (dist.get(row.class_name) || 0) + 1); });
+  const chips = $('rosterClassDistribution');
+  chips.replaceChildren();
+  [...dist.entries()].sort((a,b)=>a[0].localeCompare(b[0],'ko')).forEach(([name, total]) => {
+    const el = document.createElement('span');
+    el.className = 'class-chip';
+    el.textContent = `${name} ${total}`;
+    chips.append(el);
+  });
+  if (!dist.size) chips.textContent = '연결된 캐릭터가 없습니다.';
+
+  const container = $('rosterMembers');
+  container.replaceChildren();
+  if (!rows.length) container.textContent = '고정 참여자가 없습니다. 참여 일정 탭에서 먼저 고정 참여자를 등록해 주세요.';
+  const taken = new Set(rows.map(partyPlace).filter(Boolean));
+
+  for (const member of rows) {
+    const wrap = document.createElement('div');
+    wrap.className = 'roster-member';
+    const head = document.createElement('div');
+    head.className = 'roster-person';
+    const name = document.createElement('strong');
+    name.textContent = member.nickname;
+    const label = document.createElement('span');
+    label.className = 'tag';
+    label.textContent = member.party_number ? `${partyLabel(member.party_number)} · ${member.slot_number}번` : '미배정';
+    head.append(name, label);
+    const detail = document.createElement('p');
+    detail.className = 'roster-detail';
+    detail.textContent = memberInfo(member);
+    const selects = document.createElement('div');
+    selects.className = 'roster-selects';
+    const charWrap = document.createElement('div');
+    const charLabel = document.createElement('label');
+    charLabel.textContent = '캐릭터 연결';
+    const charSelect = document.createElement('select');
+    charSelect.setAttribute('aria-label', member.nickname + ' 캐릭터 연결');
+    charSelect.add(new Option('미선택 / 이름 일치 시 자동 연결', ''));
+    sanctuaryPartyCharacters.forEach(c => {
+      const serverName = serverById.get(Number(c.server_id))?.name || '서버 확인 필요';
+      charSelect.add(new Option(`${c.character_name} · ${serverName} (${c.class_name})`, String(c.id)));
+    });
+    charSelect.value = member.character_id == null ? '' : String(member.character_id);
+    charSelect.addEventListener('change', async () => {
+      const chosen = charSelect.value ? Number(charSelect.value) : null;
+      await updatePartySetting('/api/sanctuary/roster/character',
+        {sanctuary:activeSection,nickname:member.nickname,characterId:chosen}, charSelect);
+    });
+    charWrap.append(charLabel,charSelect);
+    const partyWrap = document.createElement('div');
+    const partyFieldLabel = document.createElement('label');
+    partyFieldLabel.textContent = '파티 배정';
+    const partySelect = document.createElement('select');
+    partySelect.setAttribute('aria-label', member.nickname + ' 파티 배정');
+    partySelect.add(new Option('미배정', ''));
+    for (let party=1;party<=TOTAL_PARTIES;party++) {
+      for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
+        const value = `${party}:${slot}`;
+        if (taken.has(value) && partyPlace(member) !== value) continue;
+        partySelect.add(new Option(`${partyLabel(party)} · ${slot}번`, value));
+      }
+    }
+    partySelect.value = partyPlace(member);
+    partySelect.addEventListener('change', async () => {
+      const [p,slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null,null];
+      await updatePartySetting('/api/sanctuary/roster/party',
+        {sanctuary:activeSection,nickname:member.nickname,partyNumber:p,slotNumber:slot},partySelect);
+    });
+    partyWrap.append(partyFieldLabel,partySelect);
+    selects.append(charWrap,partyWrap);
+    wrap.append(head,detail,selects);
+    container.append(wrap);
+  }
+
+  const cards = $('partyCards');
+  cards.replaceChildren();
+  for (let force=1;force<=FORCE_COUNT;force++) {
+    const forceCard = document.createElement('section');
+    forceCard.className = 'force-card';
+    const forceTitle = document.createElement('h3');
+    forceTitle.className = 'force-title';
+    const forceMembers = rows.filter(r => Math.ceil(Number(r.party_number) / PARTIES_PER_FORCE) === force);
+    forceTitle.textContent = `${force}포스 · ${forceMembers.length}/${PARTIES_PER_FORCE * PARTY_CAPACITY}명`;
+    forceCard.append(forceTitle);
+    const parties = document.createElement('div');
+    parties.className = 'force-parties';
+    for (let withinForce=1;withinForce<=PARTIES_PER_FORCE;withinForce++) {
+      const party = (force - 1) * PARTIES_PER_FORCE + withinForce;
+      const card = document.createElement('div');
+      card.className='party-card';
+      const title = document.createElement('h3');
+      const members = rows.filter(r=>Number(r.party_number)===party);
+      title.textContent = `${withinForce}파티 · ${members.length}/${PARTY_CAPACITY}명`;
+      card.append(title);
+      const existingDetails = sanctuaryPartyDetails.find(p => Number(p.party_number) === party) || {};
+      if (existingDetails.marker) title.textContent = `${markText(existingDetails.marker)}  ${title.textContent}`;
+      const partyFields = document.createElement('div');
+      partyFields.className = 'party-edit-fields';
+      const partyMarkWrap = document.createElement('label');
+      partyMarkWrap.textContent = '파티 징표';
+      const partyMark = document.createElement('select');
+      partyMark.setAttribute('aria-label', `${partyLabel(party)} 징표`);
+      appendMarkOptions(partyMark);
+      partyMark.value = existingDetails.marker || '';
+      partyMarkWrap.append(partyMark);
+      const partyNoteWrap = document.createElement('label');
+      partyNoteWrap.textContent = '파티 비고';
+      const partyNote = document.createElement('input');
+      partyNote.type = 'text';
+      partyNote.maxLength = 150;
+      partyNote.placeholder = '예: 1넴 징표 담당';
+      partyNote.value = existingDetails.note || '';
+      partyNote.setAttribute('aria-label', `${partyLabel(party)} 비고`);
+      partyNoteWrap.append(partyNote);
+      const saveParty = document.createElement('button');
+      saveParty.type = 'button';
+      saveParty.className = 'secondary small';
+      saveParty.textContent = '비고 · 징표 저장';
+      saveParty.addEventListener('click', () => updatePartySetting(
+        '/api/sanctuary/roster/party-details',
+        {sanctuary:activeSection, partyNumber:party, note:partyNote.value, marker:partyMark.value},
+        saveParty));
+      partyFields.append(partyMarkWrap, partyNoteWrap, saveParty);
+      card.append(partyFields);
+      for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
+        const item = members.find(r=>Number(r.slot_number)===slot);
+        const line = document.createElement('div');
+        line.className = 'party-slot' + (item?'':' empty');
+        const num = document.createElement('span');
+        num.className='slot-num'; num.textContent=String(slot);
+        const contents=document.createElement('div');
+        contents.style.flex='1';
+        const name=document.createElement('strong');
+        name.textContent=item ? `${markText(item.member_marker) ? markText(item.member_marker)+'  ' : ''}${item.nickname}` : '빈 자리';
+        contents.append(name);
+        if (item) {
+          const memberMark = document.createElement('select');
+          memberMark.className = 'member-marker-select';
+          memberMark.setAttribute('aria-label', `${item.nickname} 징표`);
+          appendMarkOptions(memberMark);
+          memberMark.value = item.member_marker || '';
+          memberMark.title = `${item.nickname}의 징표`;
+          memberMark.addEventListener('change', () => updatePartySetting(
+            '/api/sanctuary/roster/member-marker',
+            {sanctuary:activeSection,nickname:item.nickname,marker:memberMark.value},
+            memberMark));
+          const desc=document.createElement('div');
+          desc.className='slot-detail';
+          desc.textContent=memberInfo(item);
+          contents.append(desc, memberMark);
+        }
+        line.append(num,contents);
+        card.append(line);
+      }
+      parties.append(card);
+    }
+    forceCard.append(parties);
+    cards.append(forceCard);
+  }
+}
+
+async function updatePartySetting(path, payload, control) {
+  control.disabled = true;
+  $('partyMessage').textContent = '저장 중...';
+  try {
+    const section = activeSection;
+    await api(path,'POST',payload);
+    if (activeSection === section) await loadPartyRoster();
+    $('partyMessage').textContent='편성이 저장되었습니다.';
+  } catch (error) {
+    $('partyMessage').textContent=error.message;
+    try { await loadPartyRoster(); }
+    catch { /* 최초 오류 메시지는 보존 */ }
+    $('partyMessage').textContent=error.message;
+  } finally { control.disabled = false; }
+}
+
+$('reloadPartyRoster').addEventListener('click', async ()=> {
+  try { await loadPartyRoster(); }
+  catch(error){ $('partyMessage').textContent=error.message; }
+});
+
+
+// =====================================================
+// 닉네임별 숙제: 로그인 세션의 닉네임 기준으로 서버가 필터링
+// =====================================================
+let homeworkData = null;
+function resetHomeworkView() {
+  homeworkData = null;
+  $('hwTableView').hidden = true;
+  $('hwRows').replaceChildren();
+  $('hwMessage').textContent = '';
+}
+async function loadHomework() {
+  if (!user) return;
+  $('hwCurrentNick').textContent = `${user.nickname} 님의 숙제`;
+  $('hwTableView').hidden = false;
+  const result = await api('/api/homework');
+  homeworkData = result;
+  renderHomework();
+}
+function renderHomework() {
+  if (!homeworkData) return;
+  const rows = homeworkData.characters || [];
+  const tasks = homeworkData.tasks || [];
+  const completed = rows.reduce((sum, ch) => sum + ch.completed.length, 0);
+  const possible = rows.length * tasks.length;
+  $('hwCharacterCount').textContent = String(rows.length);
+  $('hwCompletedCount').textContent = `${completed} / ${possible}`;
+  $('hwCompletedPercent').textContent = `${possible ? Math.round(completed / possible * 100) : 0}%`;
+  $('hwWeekLabel').textContent = `${homeworkData.weekStart} 시작 주간 · 매주 수요일 05:00 초기화 (어비스회랑 제외)`;
+  const tbody = $('hwRows');
+  tbody.replaceChildren();
+  if (!rows.length) {
+    const row = tbody.insertRow();
+    const cell = row.insertCell(); cell.colSpan = 12;
+    cell.textContent = '내 캐릭터가 등록되어 있지 않습니다. 캐릭터 관리에서 소유자 닉네임으로 캐릭터를 등록해 주세요.';
+  }
+  for (const character of rows) {
+    const row = tbody.insertRow();
+    addCell(row, character.name);
+    addCell(row, character.className || '-');
+    addCell(row, Number(character.itemLevel || 0).toLocaleString('ko-KR'));
+    addCell(row, `${Number(character.naddolK || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`);
+    for (const task of tasks) {
+      const cell = row.insertCell();
+      const button = document.createElement('button');
+      const done = character.completed.includes(task.key);
+      button.type = 'button';
+      button.className = 'hw-toggle' + (done ? ' done' : '');
+      button.textContent = done ? '완료' : '미완료';
+      button.setAttribute('aria-label', `${character.name} ${task.label}: ${done ? '완료' : '미완료'}`);
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        $('hwMessage').textContent = '저장 중...';
+        try {
+          await api('/api/homework','POST', {characterId:character.id,taskKey:task.key,completed:!done});
+          if (activeSection === 'homework') await loadHomework();
+          $('hwMessage').textContent = `${character.name} · ${task.label} 저장 완료`;
+        } catch(e) { $('hwMessage').textContent = e.message; }
+        finally { button.disabled = false; }
+      });
+      cell.append(button);
+    }
+  }
+}
+$('hwReload').addEventListener('click', async () => {
+  try { await loadHomework(); }
+  catch(error) { $('hwMessage').textContent = error.message; }
+});

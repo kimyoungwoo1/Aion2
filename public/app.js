@@ -124,6 +124,39 @@ async function refreshCharacter(character, button) {
   }
 }
 
+// 로그인 닉네임과 캐릭터 소유자를 같은 규칙으로 비교한다.
+function nicknameKey(value) {
+  return String(value ?? '').trim().normalize('NFC').toLocaleLowerCase('ko-KR');
+}
+
+// 내 캐릭터가 있으면 우선 표시, 그 외에는 가나다순으로 정렬한다.
+// 내 캐릭터가 없다면 모두 가나다순으로 정렬한다.
+function orderedCharacters(items, currentNickname) {
+  const mine = nicknameKey(currentNickname);
+  const compare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'ko-KR', {
+    sensitivity: 'base', numeric: true
+  });
+  return [...items].sort((a, b) => {
+    const aMine = Boolean(mine) && nicknameKey(a.owner_name) === mine;
+    const bMine = Boolean(mine) && nicknameKey(b.owner_name) === mine;
+    if (aMine !== bMine) return aMine ? -1 : 1;
+    return compare(a.owner_name, b.owner_name)
+      || compare(a.character_name, b.character_name)
+      || compare(a.server_id, b.server_id)
+      || Number(a.id) - Number(b.id);
+  });
+}
+
+// 파티 편성에서는 해당 고정 참여자 이름으로 등록된 캐릭터만 선택한다.
+function charactersForParticipant(items, participantNickname) {
+  const owner = nicknameKey(participantNickname);
+  if (!owner) return [];
+  return items.filter(c => nicknameKey(c.owner_name) === owner)
+    .sort((a, b) => String(a.character_name).localeCompare(String(b.character_name), 'ko-KR', {
+      sensitivity: 'base', numeric: true
+    }));
+}
+
 function renderCharacters() {
   $('characterCount').textContent = characters.length;
   $('ownerCount').textContent = new Set(characters.map(item => item.owner_name)).size;
@@ -136,8 +169,11 @@ function renderCharacters() {
     cell.textContent = '등록된 캐릭터가 없습니다. 캐릭터명과 서버를 선택해 등록해 보세요.';
     return;
   }
-  for (const item of characters) {
+  for (const item of orderedCharacters(characters, user?.nickname)) {
     const row = body.insertRow();
+    if (nicknameKey(item.owner_name) === nicknameKey(user?.nickname)) {
+      row.classList.add('my-character-row');
+    }
     addCell(row, item.owner_name);
     addCell(row, item.character_name);
     addCell(row, serverById.get(Number(item.server_id))?.name || '서버 확인 필요');
@@ -670,12 +706,23 @@ function renderPartyRoster() {
 
     const charSelect = document.createElement('select');
     charSelect.setAttribute('aria-label', member.nickname + ' 캐릭터 선택');
-    charSelect.add(new Option('캐릭터 자동 연결', ''));
-    sanctuaryPartyCharacters.forEach(c => {
+    const ownedCharacters = charactersForParticipant(sanctuaryPartyCharacters, member.nickname);
+    charSelect.add(new Option(ownedCharacters.length ? '자동 연결 / 미선택' : '등록된 캐릭터 없음', ''));
+    for (const c of ownedCharacters) {
       const serverName = serverById.get(Number(c.server_id))?.name || '서버 확인 필요';
       charSelect.add(new Option(`${c.character_name} · ${serverName} (${c.class_name})`, String(c.id)));
-    });
+    }
+    // 이전 버전에서 다른 소유자의 캐릭터를 연결한 기록이 있더라도
+    // 화면이 임의로 연결을 삭제하지 않게 현재 연결값만 표시한다.
+    // 해당 캐릭터는 새 연결 후보로 제공하지 않는다.
+    if (member.character_id != null &&
+        !ownedCharacters.some(c => Number(c.id) === Number(member.character_id))) {
+      const legacy = new Option(`기존 연결: ${member.character_name || '캐릭터'} (소유자 확인 필요)`,
+        String(member.character_id));
+      charSelect.add(legacy);
+    }
     charSelect.value = member.character_id == null ? '' : String(member.character_id);
+    if (!ownedCharacters.length && member.character_id == null) charSelect.disabled = true;
     charSelect.addEventListener('change', async () => {
       const chosen = charSelect.value ? Number(charSelect.value) : null;
       await updatePartySetting('/api/sanctuary/roster/character',

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: aion2-clarity-availability-20261029 -->
+  <!-- UI version: aion2-owner-sort-roster-filter-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -231,6 +231,11 @@
       .roster-editor-details > summary span { display:block; margin:8px 0 0 23px; }
     }
 
+    /* 로그인한 사람의 캐릭터를 상단에 강조 */
+    .owner-sort-hint { margin:3px 0 13px; font-size:12px; color:var(--muted); }
+    #characterRows tr.my-character-row { background:rgba(233,190,120,.075); }
+    #characterRows tr.my-character-row td:first-child { border-left:3px solid var(--gold); padding-left:8px; }
+
     /* 2026-10-29: 한눈에 읽히는 포스/파티 편성 */
     .force-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
     .force-card { background:#192944; padding:15px 18px; border:1px solid #425979; border-radius:13px; }
@@ -317,6 +322,7 @@
       </div>
       <div class="card">
         <div class="sectionhead"><h2>캐릭터 목록</h2><button class="secondary small" id="refresh">새로고침</button></div>
+        <p class="owner-sort-hint">로그인한 닉네임의 캐릭터를 먼저 보여주고, 나머지는 가나다순으로 표시합니다.</p>
         <div class="tablewrap"><table><thead><tr><th>소유자</th><th>캐릭터명</th><th>서버</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th>전투력 갱신 시각</th><th>수정자</th><th>관리</th></tr></thead><tbody id="characterRows"></tbody></table></div>
       </div>
       </section>
@@ -434,6 +440,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=aion2-clarity-availability-20261029"></script>
+  <script type="module" src="/app.js?v=aion2-owner-sort-roster-filter-20261029"></script>
 </body>
 </html>

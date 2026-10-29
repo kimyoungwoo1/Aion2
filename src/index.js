@@ -469,6 +469,7 @@ async function api(request, env, path) {
           COALESCE(mc.character_id, (
             SELECT c2.id FROM characters c2
             WHERE c2.character_name = m.nickname COLLATE NOCASE
+              AND c2.owner_name = m.nickname COLLATE NOCASE
               AND (SELECT COUNT(*) FROM characters matching
                    WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
             ORDER BY c2.id LIMIT 1
@@ -515,6 +516,7 @@ async function api(request, env, path) {
       SELECT COALESCE(mc.character_id, (
         SELECT c.id FROM characters c
         WHERE c.character_name = m.nickname COLLATE NOCASE
+          AND c.owner_name = m.nickname COLLATE NOCASE
           AND (SELECT COUNT(*) FROM characters matching
                WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
         ORDER BY c.id LIMIT 1
@@ -560,9 +562,15 @@ async function api(request, env, path) {
     if (!Number.isSafeInteger(characterId) || characterId < 1) {
       return json({ error: '캐릭터 선택을 확인해 주세요.' }, 400);
     }
-    const existingCharacter = await env.DB.prepare('SELECT id FROM characters WHERE id = ?')
+    const existingCharacter = await env.DB.prepare('SELECT id, owner_name FROM characters WHERE id = ?')
       .bind(characterId).first();
     if (!existingCharacter) return json({ error: '캐릭터가 없습니다.' }, 404);
+    // 수동 연결은 참여자와 동일한 소유자 닉네임을 가진 캐릭터만 허용한다.
+    // 과거에 다른 소유자와 연결한 데이터는 삭제하지 않고 그대로 유지한다.
+    const normalizeNickname = value => String(value || '').trim().normalize('NFC').toLocaleLowerCase('ko-KR');
+    if (normalizeNickname(existingCharacter.owner_name) !== normalizeNickname(nickname)) {
+      return json({ error: '해당 참여자 소유의 캐릭터만 연결할 수 있습니다.' }, 403);
+    }
     const other = await env.DB.prepare(
       'SELECT nickname FROM sanctuary_member_characters WHERE sanctuary = ? AND character_id = ? AND nickname <> ?'
     ).bind(sanctuary, characterId, nickname).first();
@@ -597,6 +605,34 @@ async function api(request, env, path) {
         !Number.isSafeInteger(slotNumber) || slotNumber < 1 || slotNumber > 5)) {
       return json({ error: '파티 위치는 1~4포스, 각 포스 1~2파티, 1~5번 자리 중 선택하세요.' }, 400);
     }
+    // 비고는 같은 저장 요청에서 파티와 징표와 함께 처리한다.
+    // 구버전 클라이언트가 note를 보내지 않으면 기존 비고는 변경하지 않는다.
+    const hasNote = Object.prototype.hasOwnProperty.call(body, 'note');
+    const note = hasNote && typeof body.note === 'string' ? body.note.trim() : null;
+    if (hasNote && (note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note))) {
+      return json({ error: '캐릭터 비고를 확인해 주세요. (최대 150자)' }, 400);
+    }
+    let characterId = null;
+    if (hasNote) {
+      const attached = await env.DB.prepare(`
+        SELECT COALESCE(mc.character_id, (
+          SELECT c.id FROM characters c
+          WHERE c.character_name = m.nickname COLLATE NOCASE
+          AND c.owner_name = m.nickname COLLATE NOCASE
+            AND (SELECT COUNT(*) FROM characters matching
+                 WHERE matching.character_name = m.nickname COLLATE NOCASE) = 1
+          ORDER BY c.id LIMIT 1
+        )) AS character_id
+        FROM sanctuary_members m
+        LEFT JOIN sanctuary_member_characters mc
+          ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
+        WHERE m.sanctuary = ? AND m.nickname = ?
+      `).bind(sanctuary, nickname).first();
+      characterId = attached?.character_id ?? null;
+      if (note && !characterId) {
+        return json({ error: '비고를 저장하려면 캐릭터를 먼저 연결해 주세요.' }, 409);
+      }
+    }
     if (!unassigned) {
       const occupied = await env.DB.prepare(
         'SELECT nickname FROM sanctuary_party_slots WHERE sanctuary = ? AND party_number = ? ' +
@@ -628,6 +664,20 @@ async function api(request, env, path) {
         'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
         'marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
       ).bind(sanctuary, nickname, marker, user.nickname, now));
+    }
+    // D1 batch는 트랜잭션으로 실행되어 비고·징표·파티가 따로 저장되지 않는다.
+    if (hasNote && characterId) {
+      if (!note) {
+        statements.push(env.DB.prepare(
+          'DELETE FROM sanctuary_character_notes WHERE sanctuary = ? AND character_id = ?'
+        ).bind(sanctuary, characterId));
+      } else {
+        statements.push(env.DB.prepare(
+          'INSERT INTO sanctuary_character_notes(sanctuary,character_id,note,updated_by,updated_at) ' +
+          'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,character_id) DO UPDATE SET ' +
+          'note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+        ).bind(sanctuary, characterId, note, user.nickname, now));
+      }
     }
     await env.DB.batch(statements);
     return json({ success: true });

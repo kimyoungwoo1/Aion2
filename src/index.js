@@ -217,7 +217,8 @@ async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = 
     env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(week),
     env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(week),
     env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week),
-    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod)
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod),
+    env.DB.prepare('DELETE FROM homework_od_amounts WHERE week_start < ?').bind(week)
   ]);
 }
 
@@ -244,27 +245,56 @@ async function homeworkApi(request, env, path, user, now) {
     await cleanOldWeeklyData(env, week, abyssPeriod);
     const rows = await env.DB.prepare(`
       SELECT c.id,c.character_name,c.server_id,c.class_name,c.item_level,c.naddol_k,
-             h.task_key
+             od.od1,od.od2,h.task_key
       FROM characters c
+      LEFT JOIN homework_od_amounts od ON od.character_id=c.id AND od.week_start=?
       LEFT JOIN homework_progress h ON h.character_id=c.id AND h.completed=1
         AND ((h.task_key='abyss' AND h.week_start=?)
           OR (h.task_key<>'abyss' AND h.week_start=?))
       WHERE c.owner_name = ?
       ORDER BY c.character_name COLLATE NOCASE,h.task_key
       LIMIT 2000
-    `).bind(abyssPeriod,week,nickname).all();
+    `).bind(week,abyssPeriod,week,nickname).all();
     const characters = [];
     const byId = new Map();
     for (const row of rows.results) {
       if (!byId.has(row.id)) {
         const character = {id:row.id,name:row.character_name,serverId:row.server_id,
-          className:row.class_name,itemLevel:row.item_level,naddolK:row.naddol_k,completed:[]};
+          className:row.class_name,itemLevel:row.item_level,naddolK:row.naddol_k,
+          od1:row.od1,od2:row.od2,completed:[]};
         byId.set(row.id,character);
         characters.push(character);
       }
       if (row.task_key && HOMEWORK_KEYS.has(row.task_key)) byId.get(row.id).completed.push(row.task_key);
     }
     return json({weekStart:week,tasks:HOMEWORK_TASKS,characters});
+  }
+
+  if (method === 'POST' && path === '/api/homework/od') {
+    const body = await readJson(request);
+    const characterId = Number(body.characterId);
+    const field = body.field;
+    const value = body.value;
+    if (!Number.isSafeInteger(characterId) || characterId < 1 ||
+        !['od1','od2'].includes(field) ||
+        (value !== null && (!Number.isSafeInteger(value) || value < 0 || value > 999999999))) {
+      return json({error:'오드 수량은 0 이상의 정수로 입력해 주세요.'},400);
+    }
+    const week = currentWeekStart();
+    await cleanOldWeeklyData(env,week,abyssResetPeriod());
+    // characterId 변조를 통한 다른 닉네임의 캐릭터 수정 방지.
+    const owner = await env.DB.prepare('SELECT id FROM characters WHERE id=? AND owner_name=?')
+      .bind(characterId,nickname).first();
+    if (!owner) return json({error:'현재 로그인 닉네임의 캐릭터만 수정할 수 있습니다.'},403);
+    // field는 검증된 값만 SQL 문자열에 넣으며, 다른 입력 필드는 덮어쓰지 않는다.
+    await env.DB.prepare(`INSERT INTO homework_od_amounts(week_start,character_id,${field},updated_at)
+        VALUES(?,?,?,?) ON CONFLICT(week_start,character_id)
+        DO UPDATE SET ${field}=excluded.${field},updated_at=excluded.updated_at`)
+      .bind(week,characterId,value,now).run();
+    const updated = await env.DB.prepare('SELECT od1,od2 FROM homework_od_amounts WHERE week_start=? AND character_id=?')
+      .bind(week,characterId).first();
+    return json({success:true,weekStart:week,od1:updated.od1,od2:updated.od2,
+      odTotal:(updated.od1||0)+(updated.od2||0)});
   }
 
   if (method === 'POST' && path === '/api/homework') {

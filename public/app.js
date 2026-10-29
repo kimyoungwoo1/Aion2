@@ -637,6 +637,11 @@ async function loadPartyRoster() {
   const result = await api('/api/sanctuary/roster?sanctuary=' + encodeURIComponent(requestedSection));
   if (activeSection !== requestedSection) return;
   sanctuaryPartyRows = result.members || [];
+  if (rosterEditorSanctuary !== requestedSection) {
+    rosterEditorSanctuary = requestedSection;
+    rosterEditorOwner = '';
+    rosterEditorCharacterId = null;
+  }
   $('partyMessage').textContent = '';
   renderPartyRoster();
 }
@@ -654,6 +659,10 @@ function partyPlace(member) {
 function partyLabel(partyNumber) {
   return `${Math.ceil(partyNumber / PARTIES_PER_FORCE)}포스 · ${((partyNumber - 1) % PARTIES_PER_FORCE) + 1}파티`;
 }
+
+let rosterEditorOwner = '';
+let rosterEditorCharacterId = null;
+let rosterEditorSanctuary = '';
 
 function renderPartyRoster() {
   const rows = sanctuaryPartyRows;
@@ -684,93 +693,137 @@ function renderPartyRoster() {
   if (!rows.length) {
     container.textContent = '고정 참여자가 없습니다. 참여 일정 탭에서 먼저 고정 참여자를 등록해 주세요.';
   }
-  const taken = new Set(characterRows.map(partyPlace).filter(Boolean));
-  const heading = document.createElement('div');
-  heading.className = 'roster-compact-header';
-  for (const text of ['참여자', '등록 캐릭터', '파티 · 징표', '캐릭터 비고', '저장']) {
-    const item = document.createElement('span'); item.textContent = text; heading.append(item);
-  }
-  if (rows.length) container.append(heading);
-
-  // 같은 참여자의 캐릭터가 여러 개여도 각각 고유한 행과 저장 버튼을 갖는다.
-  for (const member of rows) {
-    const wrap = document.createElement('div');
-    wrap.className = 'roster-compact-row';
-    const identity = document.createElement('div');
-    identity.className = 'roster-compact-identity';
-    const name = document.createElement('strong');
-    name.textContent = member.nickname;
-    identity.append(name);
-    if (!member.character_id) {
-      const hint = document.createElement('small');
-      hint.textContent = '등록 캐릭터 없음';
-      identity.append(hint);
-      const placeholder = document.createElement('div');
-      placeholder.className = 'roster-character-label';
-      placeholder.textContent = '캐릭터 관리에서 먼저 등록해 주세요.';
-      wrap.append(identity, placeholder);
-      container.append(wrap);
-      continue;
-    }
-    const detail = document.createElement('small');
-    detail.textContent = `${member.class_name || '-'} · Lv ${Number(member.item_level || 0).toLocaleString('ko-KR')} · ${Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`;
-    identity.append(detail);
-
-    const charLabel = document.createElement('div');
-    charLabel.className = 'roster-character-label';
-    const characterName = document.createElement('strong');
-    characterName.textContent = member.character_name;
-    charLabel.append(characterName);
-    const serverLabel = document.createElement('small');
-    serverLabel.textContent = serverById.get(Number(member.server_id))?.name || '서버 확인 필요';
-    charLabel.append(serverLabel);
-
-    const assignmentWrap = document.createElement('div');
-    assignmentWrap.className = 'roster-assignment';
-    const partySelect = document.createElement('select');
-    partySelect.setAttribute('aria-label', member.character_name + ' 파티 위치');
-    partySelect.add(new Option('미배정', ''));
-    for (let party = 1; party <= TOTAL_PARTIES; party++) {
-      for (let slot = 1; slot <= PARTY_CAPACITY; slot++) {
-        const value = `${party}:${slot}`;
-        if (taken.has(value) && partyPlace(member) !== value) continue;
-        partySelect.add(new Option(`${partyLabel(party)} · ${slot}번`, value));
-      }
-    }
-    partySelect.value = partyPlace(member);
-    const markSelect = document.createElement('select');
-    markSelect.setAttribute('aria-label', member.character_name + ' 징표');
-    appendMarkOptions(markSelect);
-    markSelect.value = member.member_marker || '';
-    const saveAssignment = document.createElement('button');
-    saveAssignment.type = 'button';
-    saveAssignment.className = 'primary small roster-save-all';
-    saveAssignment.textContent = '변경사항 저장';
-    saveAssignment.setAttribute('aria-label', member.character_name + ' 파티, 징표, 비고 모두 저장');
-    assignmentWrap.append(partySelect, markSelect);
-
-    const noteWrap = document.createElement('div');
-    noteWrap.className = 'character-note-edit';
-    const characterNote = document.createElement('input');
-    characterNote.type = 'text';
-    characterNote.maxLength = 150;
-    characterNote.value = member.character_note || '';
-    characterNote.placeholder = '예: 1넴 징표 담당';
-    characterNote.setAttribute('aria-label', `${member.character_name} 캐릭터 비고`);
-    noteWrap.append(characterNote);
-    saveAssignment.addEventListener('click', async () => {
-      const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
-      await updatePartySetting('/api/sanctuary/roster/assignment', {
-        sanctuary: activeSection,
-        nickname: member.nickname,
-        characterId: member.character_id,
-        partyNumber: p, slotNumber: slot,
-        marker: markSelect.value,
-        note: characterNote.value
-      }, saveAssignment);
+  // 참여자 + 캐릭터 2단 드롭다운: 행이 무한히 길어지는 문제를 방지한다.
+  // 선택값을 저장 뒤 새로고침할 때에도 유지하며, DB 저장은 실제 characterId 기준이다.
+  const previousOwner = container.querySelector('#rosterOwnerSelect')?.value || rosterEditorOwner;
+  const previousCharacter = container.querySelector('#rosterCharacterSelect')?.value || String(rosterEditorCharacterId || '');
+  container.replaceChildren();
+  const owners = [...new Set(rows.map(row => row.nickname))].sort((a, b) => {
+    const aMine = nicknameKey(a) === nicknameKey(user?.nickname);
+    const bMine = nicknameKey(b) === nicknameKey(user?.nickname);
+    return aMine !== bMine ? (aMine ? -1 : 1) : a.localeCompare(b, 'ko-KR');
+  });
+  if (!owners.length) {
+    container.textContent = '고정 참여자가 없습니다. 참여 일정에서 참여자를 먼저 등록해 주세요.';
+  } else {
+    const selectors = document.createElement('div');
+    selectors.className = 'roster-picker';
+    const ownerField = document.createElement('label');
+    ownerField.textContent = '참여자 선택';
+    const ownerSelect = document.createElement('select');
+    ownerSelect.id = 'rosterOwnerSelect';
+    ownerSelect.setAttribute('aria-label', '참여자 선택');
+    owners.forEach(nick => {
+      const count = rows.filter(row => nicknameKey(row.nickname) === nicknameKey(nick) && row.character_id != null).length;
+      ownerSelect.add(new Option(`${nick} (${count}캐릭터)`, nick));
     });
-    wrap.append(identity, charLabel, assignmentWrap, noteWrap, saveAssignment);
-    container.append(wrap);
+    ownerSelect.value = owners.includes(previousOwner) ? previousOwner :
+      (owners.find(name => nicknameKey(name) === nicknameKey(user?.nickname)) || owners[0]);
+    ownerField.append(ownerSelect);
+
+    const characterField = document.createElement('label');
+    characterField.textContent = '캐릭터 선택';
+    const characterSelect = document.createElement('select');
+    characterSelect.id = 'rosterCharacterSelect';
+    characterSelect.setAttribute('aria-label', '수정할 캐릭터 선택');
+    characterField.append(characterSelect);
+    selectors.append(ownerField, characterField);
+    const editor = document.createElement('div');
+    editor.id = 'rosterSingleEditor';
+    editor.className = 'roster-single-editor';
+    container.append(selectors, editor);
+
+    function showChosenCharacter() {
+      editor.replaceChildren();
+      const member = rows.find(row => String(row.character_id) === characterSelect.value &&
+        nicknameKey(row.nickname) === nicknameKey(ownerSelect.value));
+      if (!member) {
+        editor.textContent = '해당 참여자의 등록 캐릭터가 없습니다. 캐릭터 관리에서 먼저 등록해 주세요.';
+        rosterEditorCharacterId = null;
+        return;
+      }
+      rosterEditorCharacterId = member.character_id;
+      const taken = new Set(characterRows.map(partyPlace).filter(Boolean));
+      const wrap = document.createElement('div');
+      wrap.className = 'roster-single-body';
+      const info = document.createElement('div');
+      info.className = 'roster-single-info';
+      const title = document.createElement('strong');
+      title.textContent = member.character_name;
+      const summary = document.createElement('span');
+      const place = partyPlace(member);
+      summary.textContent = `${member.class_name || '-'} · Lv ${Number(member.item_level || 0).toLocaleString('ko-KR')} · ${Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k · ${place ? `${partyLabel(member.party_number)} · ${member.slot_number}번` : '미배정'}`;
+      info.append(title, summary);
+      const fields = document.createElement('div');
+      fields.className = 'roster-single-fields';
+      const partyField = document.createElement('label');
+      partyField.textContent = '파티 위치';
+      const partySelect = document.createElement('select');
+      partySelect.setAttribute('aria-label', member.character_name + ' 파티 위치');
+      partySelect.add(new Option('미배정', ''));
+      for (let party = 1; party <= TOTAL_PARTIES; party++) {
+        for (let slot = 1; slot <= PARTY_CAPACITY; slot++) {
+          const value = `${party}:${slot}`;
+          if (taken.has(value) && partyPlace(member) !== value) continue;
+          partySelect.add(new Option(`${partyLabel(party)} · ${slot}번`, value));
+        }
+      }
+      partySelect.value = partyPlace(member);
+      partyField.append(partySelect);
+      const markerField = document.createElement('label');
+      markerField.textContent = '징표';
+      const markSelect = document.createElement('select');
+      markSelect.setAttribute('aria-label', member.character_name + ' 징표');
+      appendMarkOptions(markSelect);
+      markSelect.value = member.member_marker || '';
+      markerField.append(markSelect);
+      const noteField = document.createElement('label');
+      noteField.textContent = '캐릭터 비고';
+      const characterNote = document.createElement('input');
+      characterNote.type = 'text';
+      characterNote.maxLength = 150;
+      characterNote.value = member.character_note || '';
+      characterNote.placeholder = '예: 1넴 징표 담당';
+      characterNote.setAttribute('aria-label', member.character_name + ' 캐릭터 비고');
+      noteField.append(characterNote);
+      fields.append(partyField, markerField, noteField);
+      const saveAssignment = document.createElement('button');
+      saveAssignment.type = 'button';
+      saveAssignment.className = 'primary roster-single-save';
+      saveAssignment.textContent = '변경사항 저장';
+      saveAssignment.setAttribute('aria-label', member.character_name + ' 파티·징표·비고 저장');
+      saveAssignment.addEventListener('click', async () => {
+        const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
+        rosterEditorOwner = ownerSelect.value;
+        rosterEditorCharacterId = member.character_id;
+        await updatePartySetting('/api/sanctuary/roster/assignment', {
+          sanctuary: activeSection,
+          nickname: member.nickname,
+          characterId: member.character_id,
+          partyNumber: p, slotNumber: slot,
+          marker: markSelect.value,
+          note: characterNote.value
+        }, saveAssignment);
+      });
+      wrap.append(info, fields, saveAssignment);
+      editor.append(wrap);
+    }
+    function populateChosenOwner(preferredCharacter = '') {
+      rosterEditorOwner = ownerSelect.value;
+      const mine = rows.filter(row => nicknameKey(row.nickname) === nicknameKey(ownerSelect.value) && row.character_id != null);
+      characterSelect.replaceChildren();
+      for (const member of mine) {
+        const server = serverById.get(Number(member.server_id))?.name || '서버 미확인';
+        characterSelect.add(new Option(`${member.character_name} · ${server} (${member.class_name || '-'})`, String(member.character_id)));
+      }
+      characterSelect.disabled = mine.length === 0;
+      characterSelect.value = mine.some(row => String(row.character_id) === String(preferredCharacter))
+        ? String(preferredCharacter) : (mine[0] ? String(mine[0].character_id) : '');
+      showChosenCharacter();
+    }
+    ownerSelect.addEventListener('change', () => populateChosenOwner());
+    characterSelect.addEventListener('change', showChosenCharacter);
+    populateChosenOwner(previousCharacter);
   }
 
   const cards = $('partyCards');
@@ -936,7 +989,7 @@ function renderHomework() {
   tbody.replaceChildren();
   if (!rows.length) {
     const row = tbody.insertRow();
-    const cell = row.insertCell(); cell.colSpan = 12;
+    const cell = row.insertCell(); cell.colSpan = 15;
     cell.textContent = '내 캐릭터가 등록되어 있지 않습니다. 캐릭터 관리에서 소유자 닉네임으로 캐릭터를 등록해 주세요.';
   }
   for (const character of rows) {
@@ -945,6 +998,65 @@ function renderHomework() {
     addCell(row, character.className || '-');
     addCell(row, Number(character.itemLevel || 0).toLocaleString('ko-KR'));
     addCell(row, `${Number(character.naddolK || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`);
+    // 오드1/오드2는 캐릭터·주차별 입력값. 변경 시 서버에 자동 저장한다.
+    const od1Cell = row.insertCell();
+    const od2Cell = row.insertCell();
+    const sumCell = row.insertCell();
+    const odValues = {od1: character.od1, od2: character.od2};
+    const displaySum = () => {
+      const sum = Number(odValues.od1 || 0) + Number(odValues.od2 || 0);
+      sumCell.textContent = sum.toLocaleString('ko-KR');
+    };
+    for (const [field, cell] of [['od1', od1Cell], ['od2', od2Cell]]) {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.inputMode = 'numeric';
+      input.min = '0';
+      input.max = '999999999';
+      input.step = '1';
+      input.className = 'hw-od-input';
+      input.value = character[field] == null ? '' : String(character[field]);
+      input.placeholder = '—';
+      input.setAttribute('aria-label', `${character.name} ${field === 'od1' ? '오드1' : '오드2'} 입력`);
+      const updateSumDraft = () => {
+        odValues[field] = input.value === '' ? null : Number(input.value);
+        if (Number.isFinite(Number(odValues[field]))) displaySum();
+      };
+      input.addEventListener('input', updateSumDraft);
+      input.addEventListener('keydown', event => { if (event.key === 'Enter') input.blur(); });
+      input.addEventListener('change', async () => {
+        const original = character[field];
+        const next = input.value === '' ? null : Number(input.value);
+        if (next === original) return;
+        if (next != null && (!Number.isSafeInteger(next) || next < 0 || next > 999999999)) {
+          $('hwMessage').textContent = '오드 수량은 0 이상의 정수로 입력해 주세요.';
+          input.value = original == null ? '' : String(original);
+          odValues[field] = original;
+          displaySum();
+          return;
+        }
+        input.disabled = true;
+        $('hwMessage').textContent = '오드 수량 저장 중...';
+        try {
+          const result = await api('/api/homework/od','POST', {
+            characterId:character.id,field,value:next
+          });
+          character[field] = result[field];
+          odValues[field] = result[field];
+          input.value = character[field] == null ? '' : String(character[field]);
+          displaySum();
+          $('hwMessage').textContent = `${character.name} · ${field === 'od1' ? '오드1' : '오드2'} 저장 완료`;
+        } catch (error) {
+          input.value = original == null ? '' : String(original);
+          odValues[field] = original;
+          displaySum();
+          $('hwMessage').textContent = error.message;
+        } finally { input.disabled = false; }
+      });
+      cell.append(input);
+    }
+    sumCell.className = 'hw-od-total';
+    displaySum();
     for (const task of tasks) {
       const cell = row.insertCell();
       const button = document.createElement('button');

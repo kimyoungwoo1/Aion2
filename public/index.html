@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: sanctuary-sync-20261029 -->
+  <!-- UI version: permanent-membership-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -59,6 +59,14 @@
     .sync-panel { margin:15px 0 20px; padding:15px 17px; border:1px solid #52607d; border-radius:10px; background:#182b40; }
     .sync-panel p { margin:0 0 11px; color:#c8ddf7; font-size:14px; line-height:1.65; }
     .sync-panel p:last-child { margin-bottom:0; }
+    .all-available { padding:16px 18px; margin-top:16px; border:1px solid #52607d; border-radius:11px; background:#12283a; }
+    .all-available h3 { margin:0 0 12px; color:var(--gold); font-size:16px; }
+    .all-available-row { display:flex; align-items:flex-start; gap:12px; margin-top:10px; flex-wrap:wrap; }
+    .all-available-label { min-width:65px; font-size:13px; font-weight:750; color:#d0ddf3; padding-top:5px; }
+    .all-available-days { display:flex; flex-wrap:wrap; align-items:center; gap:7px; flex:1; font-size:13px; }
+    .all-available-days .day-pill { padding:5px 11px; border-radius:20px; background:#254d5c; border:1px solid #467889; color:#e6fbff; font-weight:650; }
+    .all-available-days .empty-days { color:var(--muted); }
+    .all-available small { display:block; color:var(--muted); font-size:12px; line-height:1.5; margin-top:13px; }
     .schedule-summary { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; }
     .schedule-summary > div { padding:12px 8px; border:1px solid var(--line); border-radius:10px; text-align:center; background:#111b2e; }
     .schedule-summary .sumdate { color:var(--gold); font-size:13px; margin-bottom:9px; font-weight:700; }
@@ -69,6 +77,10 @@
     .status-pm { color:#85c7fa; }
     .status-no { color:#9ca3af; }
     .mine-row { background:#24324a; }
+    .member-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+    .member-chip { display:inline-flex; align-items:center; gap:7px; padding:6px 8px 6px 11px; border:1px solid #42536e; border-radius:20px; background:#101a2c; font-size:13px; }
+    .member-chip button { border-radius:50%; padding:1px 7px; font-size:14px; background:#482c36; color:#ffc9ce; }
+    .member-chip button:hover { background:#713e4c; }
     @media(max-width:920px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(4,minmax(0,1fr)); } }
     @media(max-width:520px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .week-label{min-width:0} }
   </style>
@@ -127,7 +139,7 @@
       </section>
       <section id="sanctuaryPanel" hidden>
         <div class="sectionhead" style="flex-wrap:wrap;gap:16px;margin-bottom:20px">
-          <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">4성역·3성역에 같은 닉네임이 참여하면 요일별 일정이 연동됩니다. 2성역은 독립 관리합니다.</p></div>
+          <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">4성역·3성역의 공통 참여자 일정은 별도 저장 없이 자동 연동됩니다. 각 성역의 고정 명단은 따로 관리하며, 2성역은 독립 운영합니다.</p></div>
           <div class="week-controls">
             <button class="secondary small" type="button" id="prevWeek">이전 주</button>
             <span class="week-label" id="weekLabel"></span>
@@ -137,16 +149,15 @@
         </div>
         <div class="card">
           <div class="sectionhead"><h2>내 참여 일정</h2><span class="tag" id="scheduleNickname"></span></div>
-          <p class="muted">날짜별로 가능 여부를 선택하고 저장해 주세요. 미입력은 아직 일정을 제출하지 않은 상태입니다.</p>
+          <p class="muted">고정 명단에 있는 참여자는 날짜별 가능 여부를 저장할 수 있습니다. 4성역·3성역에 모두 속하면 한쪽에서 저장한 내용이 두 탭에 바로 표시됩니다.</p>
           <div class="sync-panel" id="syncSchedulePanel" hidden>
             <p id="syncScheduleText"></p>
-            <button type="button" class="secondary" id="copySchedule" hidden>다른 성역 일정 가져와 참여</button>
           </div>
           <form id="scheduleForm">
             <div id="scheduleEditor" class="availability-editor"></div>
             <label for="scheduleNote">비고 (선택)</label>
             <textarea id="scheduleNote" maxlength="300" rows="2" placeholder="예: 토요일 오후 8시 이후 가능"></textarea>
-            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">이 성역 일정 삭제</button></div>
+            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">이번 주 일정 초기화</button></div>
             <p class="message" id="scheduleMessage" role="status"></p>
           </form>
         </div>
@@ -154,6 +165,23 @@
           <div class="sectionhead"><h2>날짜별 참여 가능 인원</h2><span class="tag" id="scheduleCount"></span></div>
           <div id="scheduleSummary" class="schedule-summary"></div>
           <p class="muted" style="font-size:13px">오전 가능: '가능' 선택 인원 · 오후 가능: '가능' 및 '오후 가능' 선택 인원</p>
+          <div class="all-available" aria-live="polite">
+            <h3>다같이 가능한 요일</h3>
+            <div class="all-available-row"><span class="all-available-label">오전</span><div class="all-available-days" id="allAvailableMorning"></div></div>
+            <div class="all-available-row"><span class="all-available-label">오후</span><div class="all-available-days" id="allAvailableAfternoon"></div></div>
+            <small>이 성역의 고정 참여자 전원이 참여 가능한 날짜만 표시합니다. 미입력 또는 불가능이 있는 날짜는 제외합니다.</small>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sectionhead"><h2>고정 참여자 명단</h2><span class="tag" id="memberCount">0명</span></div>
+          <p class="muted" style="font-size:13px">여기에 등록된 닉네임은 매주 자동으로 전체 참여 일정에 나타납니다. 한 번만 등록하면 다음 주에도 유지됩니다. 다른 성역의 명단은 변경되지 않습니다.</p>
+          <form id="membersForm">
+            <label for="memberNames">참여자 닉네임 추가</label>
+            <textarea id="memberNames" rows="3" maxlength="3000" placeholder="예: 슬롱&#10;한 줄에 한 명씩 입력 (쉼표로 구분 가능)"></textarea>
+            <div class="actions"><button class="primary" id="addMembers" type="submit">명단에 추가</button></div>
+            <p class="message" id="membersMessage" role="status"></p>
+          </form>
+          <div id="memberChips" class="member-chips"></div>
         </div>
         <div class="card">
           <div class="sectionhead"><h2>전체 참여 일정</h2><button type="button" class="secondary small" id="reloadSchedule">새로고침</button></div>
@@ -163,6 +191,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=sanctuary-sync-20261029"></script>
+  <script type="module" src="/app.js?v=permanent-membership-20261029"></script>
 </body>
 </html>

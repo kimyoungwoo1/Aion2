@@ -227,10 +227,12 @@ async function lookupCharacter(env, characterName, serverId) {
 }
 
 
-// 매주 월요일~일요일 일정. 4·3성역은 같은 주차와 닉네임이 양쪽에 등록된 경우에만 요일별 참석 상태를 동기화한다.
-// 2성역은 항상 독립적이고, 성역별 비고도 독립 관리한다.
+// 성역별 고정 참여 명단과 주차별 가능 여부는 서로 분리한다.
+// 4·3성역의 같은 닉네임은 동일한 주차의 한 일정 레코드를 읽으므로, 다른 성역에서 다시 저장할 필요가 없다.
+// 2성역은 독립적이다. 성역별 비고도 별도로 저장한다.
 const SANCTUARIES = new Set(['4', '3', '2']);
 const STATUS_VALUES = new Set(['', 'yes', 'pm', 'no']);
+const EMPTY_WEEK = JSON.stringify(Array(7).fill(''));
 function validMonday(value) {
   if (typeof value !== 'string' || !/^20[2-3]\d-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(value + 'T00:00:00.000Z');
@@ -244,10 +246,15 @@ function formatSanctuaryRow(row) {
   return {
     nickname: row.nickname,
     statuses: statuses.map(s => STATUS_VALUES.has(s) ? s : ''),
-    note: row.note,
-    updatedBy: row.updated_by,
-    updatedAt: row.updated_at
+    note: row.note || '',
+    updatedBy: row.updated_by || '',
+    updatedAt: row.updated_at || 0
   };
+}
+
+async function sanctuaryMember(env, sanctuary, nickname) {
+  return env.DB.prepare('SELECT nickname FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?')
+    .bind(sanctuary, nickname).first();
 }
 
 async function api(request, env, path) {
@@ -300,6 +307,7 @@ async function api(request, env, path) {
   }
 
 
+  // 이번 주 일정을 입력하지 않은 사람도 고정 명단에서 항상 보이게 한다.
   if (path === '/api/sanctuary' && method === 'GET') {
     const url = new URL(request.url);
     const sanctuary = url.searchParams.get('sanctuary');
@@ -307,49 +315,71 @@ async function api(request, env, path) {
     if (!SANCTUARIES.has(sanctuary) || !validMonday(weekStart)) {
       return json({ error: '성역 또는 주차가 올바르지 않습니다.' }, 400);
     }
-    const rows = await env.DB.prepare(
-      'SELECT nickname, statuses, note, updated_by, updated_at FROM sanctuary_schedules ' +
-      'WHERE sanctuary = ? AND week_start = ? ORDER BY nickname COLLATE NOCASE LIMIT 300'
-    ).bind(sanctuary, weekStart).all();
-    // 상대 성역에 본인 일정이 있는지 확인. 아직 참여하지 않은 사람을 자동 등록하지 않는다.
-    let counterpart = null;
+    let rows;
     if (sanctuary === '4' || sanctuary === '3') {
-      const other = sanctuary === '4' ? '3' : '4';
-      const otherRow = await env.DB.prepare(
-        'SELECT nickname, statuses, note, updated_by, updated_at FROM sanctuary_schedules ' +
-        'WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
-      ).bind(other, weekStart, user.nickname).first();
-      if (otherRow) counterpart = { sanctuary: other, ...formatSanctuaryRow(otherRow) };
+      // 공통 닉네임은 동일한 shared 레코드를 조회한다.
+      rows = await env.DB.prepare(
+        'SELECT m.nickname, COALESCE(shared.statuses, ?) AS statuses, ' +
+        "COALESCE(local.note, '') AS note, COALESCE(shared.updated_by, '') AS updated_by, " +
+        'COALESCE(shared.updated_at, 0) AS updated_at ' +
+        'FROM sanctuary_members m ' +
+        'LEFT JOIN sanctuary_shared_availability shared ' +
+        'ON shared.week_start = ? AND shared.nickname = m.nickname ' +
+        'LEFT JOIN sanctuary_schedules local ' +
+        'ON local.sanctuary = m.sanctuary AND local.week_start = ? AND local.nickname = m.nickname ' +
+        'WHERE m.sanctuary = ? ORDER BY m.nickname COLLATE NOCASE LIMIT 300'
+      ).bind(EMPTY_WEEK, weekStart, weekStart, sanctuary).all();
+    } else {
+      rows = await env.DB.prepare(
+        'SELECT m.nickname, COALESCE(local.statuses, ?) AS statuses, ' +
+        "COALESCE(local.note, '') AS note, COALESCE(local.updated_by, '') AS updated_by, " +
+        'COALESCE(local.updated_at, 0) AS updated_at ' +
+        'FROM sanctuary_members m LEFT JOIN sanctuary_schedules local ' +
+        'ON local.sanctuary = m.sanctuary AND local.week_start = ? AND local.nickname = m.nickname ' +
+        'WHERE m.sanctuary = ? ORDER BY m.nickname COLLATE NOCASE LIMIT 300'
+      ).bind(EMPTY_WEEK, weekStart, sanctuary).all();
     }
-    return json({ sanctuary, weekStart, entries: rows.results.map(formatSanctuaryRow), counterpart });
+    return json({
+      sanctuary, weekStart,
+      entries: rows.results.map(formatSanctuaryRow),
+      isMember: rows.results.some(row => row.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR'))
+    });
   }
 
-  // 4·3성역 중 아직 참여하지 않은 쪽으로 일정을 한 번에 가져온다.
-  // 이후 양쪽에 등록된 동안에는 '가능/오후 가능/불가능'만 양방향 동기화된다.
-  if (path === '/api/sanctuary/link' && method === 'POST') {
+  // 고정 명단은 주차별 일정과 무관하게 유지된다. 닉네임 여러 개를 한 번에 추가할 수 있다.
+  if (path === '/api/sanctuary/members' && method === 'POST') {
     const body = await readJson(request);
     const sanctuary = body.sanctuary;
-    const weekStart = body.weekStart;
-    if ((sanctuary !== '4' && sanctuary !== '3') || !validMonday(weekStart)) {
-      return json({ error: '4성역 또는 3성역과 올바른 주차를 선택하세요.' }, 400);
+    if (!SANCTUARIES.has(sanctuary) || !Array.isArray(body.nicknames) ||
+        body.nicknames.length < 1 || body.nicknames.length > 100 ||
+        !body.nicknames.every(name => validLabel(name, 30))) {
+      return json({ error: '성역과 참여자 닉네임을 확인해 주세요.' }, 400);
     }
-    const other = sanctuary === '4' ? '3' : '4';
-    const source = await env.DB.prepare(
-      'SELECT statuses FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
-    ).bind(other, weekStart, user.nickname).first();
-    if (!source) return json({ error: '다른 성역에 가져올 일정이 없습니다.' }, 404);
-    const statuses = formatSanctuaryRow({ ...source, nickname: user.nickname, note: '', updated_by: user.nickname, updated_at: now }).statuses;
-    if (statuses.every(value => value === '')) {
-      return json({ error: '다른 성역의 요일별 일정을 먼저 입력해 주세요.' }, 409);
+    const names = [...new Map(body.nicknames.map(name => [name.trim().toLocaleLowerCase('ko-KR'), name.trim()])).values()];
+    const existing = await env.DB.prepare(
+      'SELECT COUNT(*) AS total FROM sanctuary_members WHERE sanctuary = ?'
+    ).bind(sanctuary).first();
+    if (existing.total + names.length > 300) {
+      return json({ error: '한 성역의 참여자는 최대 300명까지 등록할 수 있습니다.' }, 400);
     }
-    const insert = await env.DB.prepare(
-      'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary, week_start, nickname) DO NOTHING'
-    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), '', user.nickname, now).run();
-    if (!insert.meta.changes) {
-      return json({ error: '이미 이 성역에 일정이 있습니다. 양쪽에 등록된 일정은 저장 시 동기화됩니다.' }, 409);
+    await env.DB.batch(names.map(name => env.DB.prepare(
+      'INSERT OR IGNORE INTO sanctuary_members (sanctuary, nickname, created_by, created_at) VALUES (?, ?, ?, ?)'
+    ).bind(sanctuary, name, user.nickname, now)));
+    return json({ success: true, added: names.length });
+  }
+
+  if (path === '/api/sanctuary/members' && method === 'DELETE') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30)) {
+      return json({ error: '성역과 참여자 닉네임을 확인해 주세요.' }, 400);
     }
-    return json({ success: true, linked: true });
+    const result = await env.DB.prepare(
+      'DELETE FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?'
+    ).bind(sanctuary, nickname).run();
+    // 다른 성역의 참여자 기록과 공통 일정은 삭제하지 않는다.
+    return result.meta.changes ? json({ success: true }) : json({ error: '참여자를 찾을 수 없습니다.' }, 404);
   }
 
   if (path === '/api/sanctuary' && method === 'POST') {
@@ -365,44 +395,42 @@ async function api(request, env, path) {
         /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) {
       return json({ error: '일정 입력 값을 확인해 주세요.' }, 400);
     }
-    // 빈 일정 + 빈 비고는 현재 성역의 참여 기록만 삭제한다.
-    // 상대 성역 기록은 보존되어 의도치 않은 참여 취소를 방지한다.
-    if (statuses.every(value => value === '') && note === '') {
+    if (!(await sanctuaryMember(env, sanctuary, user.nickname))) {
+      return json({ error: '해당 성역의 고정 참여자 명단에 로그인 닉네임을 먼저 추가해 주세요.' }, 403);
+    }
+    const text = JSON.stringify(statuses);
+    const empty = statuses.every(value => value === '') && note === '';
+    if (sanctuary === '4' || sanctuary === '3') {
+      // 한 번 저장하면 4성역과 3성역에서 함께 조회된다. 명단 자체는 서로 독립적이다.
+      const sharedSave = env.DB.prepare(
+        'INSERT INTO sanctuary_shared_availability (week_start, nickname, statuses, updated_by, updated_at) ' +
+        'VALUES (?, ?, ?, ?, ?) ON CONFLICT(week_start, nickname) DO UPDATE SET ' +
+        'statuses = excluded.statuses, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
+      ).bind(weekStart, user.nickname, text, user.nickname, now);
+      const noteSave = empty
+        ? env.DB.prepare('DELETE FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?')
+          .bind(sanctuary, weekStart, user.nickname)
+        : env.DB.prepare(
+          'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
+          'note = excluded.note, statuses = excluded.statuses, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
+        ).bind(sanctuary, weekStart, user.nickname, text, note, user.nickname, now);
+      await env.DB.batch([sharedSave, noteSave]);
+      return json({ success: true, synced: true, cleared: empty });
+    }
+    // 침식은 4·3성역과 독립적으로 저장한다.
+    if (empty) {
       await env.DB.prepare(
         'DELETE FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
       ).bind(sanctuary, weekStart, user.nickname).run();
-      return json({ success: true, cleared: true, unlinked: sanctuary !== '2' });
+      return json({ success: true, cleared: true, synced: false });
     }
-    const currentSave = env.DB.prepare(
+    await env.DB.prepare(
       'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?) ' +
-      'ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
-      'nickname = excluded.nickname, statuses = excluded.statuses, note = excluded.note, ' +
-      'updated_by = excluded.updated_by, updated_at = excluded.updated_at'
-    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), note, user.nickname, now);
-    if (sanctuary !== '4' && sanctuary !== '3') {
-      await currentSave.run();
-      return json({ success: true, synced: false });
-    }
-    const other = sanctuary === '4' ? '3' : '4';
-    const otherRow = await env.DB.prepare(
-      'SELECT id FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
-    ).bind(other, weekStart, user.nickname).first();
-    if (!otherRow) {
-      // 상대 성역에 참여하지 않는 사람을 자동 등록하지 않는다.
-      await currentSave.run();
-      return json({ success: true, synced: false });
-    }
-    // 양쪽에 등록된 동일 닉네임/주차: 요일별 상태만 양방향 동기화한다.
-    // 상대 성역의 비고는 변경하지 않으며, 두 UPDATE는 D1 배치 트랜잭션으로 묶는다.
-    await env.DB.batch([
-      currentSave,
-      env.DB.prepare(
-        'UPDATE sanctuary_schedules SET statuses = ?, updated_by = ?, updated_at = ? ' +
-        'WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
-      ).bind(JSON.stringify(statuses), user.nickname, now, other, weekStart, user.nickname)
-    ]);
-    return json({ success: true, synced: true, synchronizedWith: other });
+      'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
+      'statuses = excluded.statuses, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
+    ).bind(sanctuary, weekStart, user.nickname, text, note, user.nickname, now).run();
+    return json({ success: true, synced: false });
   }
 
   if (method === 'GET' && path === '/api/characters') {

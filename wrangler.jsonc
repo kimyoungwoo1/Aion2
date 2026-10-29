@@ -1,0 +1,35 @@
+
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aion2",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-29",
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aion2-db",
+      "database_id": "64aeb031-a8f8-4421-88de-d37847eac211",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "services": [
+    {
+      "binding": "AION_API",
+      "service": "aion2-api"
+    }
+  ],
+
+  "secrets": {
+    "required": [
+      "ACCESS_CODE"
+    ]
+  }
+}

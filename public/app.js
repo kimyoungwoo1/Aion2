@@ -245,7 +245,7 @@ const availabilityLabels = { '': '미입력', yes: '가능', pm: '오후 가능'
 let activeSection = 'characters';
 let activeWeek = mondayFor(seoulToday());
 let sanctuaryRows = [];
-let sanctuaryCounterpart = null;
+let sanctuaryIsMember = false;
 
 function seoulToday() {
   return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -287,34 +287,72 @@ function createAvailabilityEditor() {
 function getMyRow() {
   return sanctuaryRows.find(row => row.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR'));
 }
+// 현재 성역에 등록된 전원이 참여할 수 있는 요일을 계산한다.
+// 미입력은 '가능'으로 간주하지 않아 과도한 참가 인원 표시를 방지한다.
+function calculateCommonAvailability(rows) {
+  const morning = [];
+  const afternoon = [];
+  if (!rows.length) return { morning, afternoon };
+  for (let day = 0; day < 7; day++) {
+    if (rows.every(row => row.statuses[day] === 'yes')) morning.push(day);
+    if (rows.every(row => row.statuses[day] === 'yes' || row.statuses[day] === 'pm')) afternoon.push(day);
+  }
+  return { morning, afternoon };
+}
+
+function renderCommonDays(containerId, indices, dates) {
+  const target = $(containerId);
+  target.replaceChildren();
+  if (!indices.length) {
+    const empty = document.createElement('span');
+    empty.className = 'empty-days';
+    empty.textContent = '없음';
+    target.append(empty);
+    return;
+  }
+  indices.forEach(idx => {
+    const day = document.createElement('span');
+    day.className = 'day-pill';
+    day.textContent = `${weekDayNames[idx]} ${shortDate(dates[idx])}`;
+    target.append(day);
+  });
+}
+
 function renderSanctuary() {
   const mine = getMyRow();
   createAvailabilityEditor();
   const syncPanel = $('syncSchedulePanel');
-  const syncText = $('syncScheduleText');
-  const copyButton = $('copySchedule');
-  const otherName = activeSection === '4' ? '3성역(무스펠)' : '4성역(델트라스)';
   syncPanel.hidden = activeSection === '2';
-  copyButton.hidden = true;
   if (activeSection !== '2') {
-    if (sanctuaryCounterpart && mine) {
-      const different = mine.statuses.some((value, idx) => value !== sanctuaryCounterpart.statuses[idx]);
-      syncText.textContent = different
-        ? `${otherName}에도 동일 닉네임으로 일정이 있습니다. 두 성역의 일정이 다르므로, 현재 화면에서 저장하면 요일별 일정이 양쪽에 동일하게 반영됩니다. 비고는 별도입니다.`
-        : `${otherName}과 일정 연동 중입니다. 어느 탭에서 수정해도 요일별 참여 가능 여부가 함께 변경됩니다. 비고는 성역별로 유지됩니다.`;
-    } else if (sanctuaryCounterpart) {
-      syncText.textContent = `${otherName}에 이미 이번 주 일정이 있습니다. 아래 버튼으로 가져오면 이 성역에도 참여 등록되며, 이후 요일별 일정이 자동 연동됩니다.`;
-      copyButton.textContent = `${otherName} 일정 가져와 참여`;
-      copyButton.hidden = false;
-    } else {
-      syncText.textContent = `${otherName}에는 이번 주 동일 닉네임의 일정이 없습니다. 두 성역에 모두 참여하게 되면 요일별 일정이 자동 연동됩니다. 참여하지 않는 성역에는 자동으로 이름이 추가되지 않습니다.`;
-    }
+    $('syncScheduleText').textContent = '4성역과 3성역에 공통으로 등록된 참여자의 가능 여부는 하나의 일정으로 관리됩니다. 어느 한쪽에서 저장하면 다른 탭에 별도 저장 없이 자동 반영됩니다. 비고는 성역별로 관리됩니다.';
   }
   $('scheduleNickname').textContent = `${user.nickname} 님`;
   const mineStatuses = mine?.statuses || Array(7).fill('');
   mineStatuses.forEach((status, index) => { $(`avail-${index}`).value = status; });
   $('scheduleNote').value = mine?.note || '';
-  $('scheduleCount').textContent = `일정 등록 ${sanctuaryRows.length}명`;
+  $('saveSchedule').disabled = !sanctuaryIsMember;
+  $('clearSchedule').disabled = !sanctuaryIsMember;
+  if (!sanctuaryIsMember) {
+    $('scheduleMessage').textContent = '현재 성역의 고정 명단에 없습니다. 아래 명단 관리에서 닉네임을 먼저 추가하세요.';
+  } else if ($('scheduleMessage').textContent.startsWith('현재 성역의 고정 명단에')) {
+    $('scheduleMessage').textContent = '';
+  }
+  $('scheduleCount').textContent = `고정 참여 ${sanctuaryRows.length}명`;
+  $('memberCount').textContent = `${sanctuaryRows.length}명`;
+  const chips = $('memberChips');
+  chips.replaceChildren();
+  for (const person of sanctuaryRows) {
+    const chip = document.createElement('span');
+    chip.className = 'member-chip';
+    chip.append(document.createTextNode(person.nickname));
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '×';
+    button.title = `${person.nickname} 명단에서 제외`;
+    button.addEventListener('click', () => removeMember(person.nickname));
+    chip.append(button);
+    chips.append(chip);
+  }
   const summary = $('scheduleSummary');
   summary.replaceChildren();
   weekDates().forEach((date, idx) => {
@@ -337,12 +375,15 @@ function renderSanctuary() {
     tile.append(day, content);
     summary.append(tile);
   });
+  const common = calculateCommonAvailability(sanctuaryRows);
+  renderCommonDays('allAvailableMorning', common.morning, weekDates());
+  renderCommonDays('allAvailableAfternoon', common.afternoon, weekDates());
   const body = $('scheduleRows');
   body.replaceChildren();
   if (!sanctuaryRows.length) {
     const cell = body.insertRow().insertCell();
     cell.colSpan = 10;
-    cell.textContent = '아직 입력된 일정이 없습니다. 위에서 첫 일정을 등록해 보세요.';
+    cell.textContent = '고정 참여자가 없습니다. 위 명단 관리에서 참여자를 추가해 주세요.';
   }
   for (const person of sanctuaryRows) {
     const row = body.insertRow();
@@ -353,7 +394,7 @@ function renderSanctuary() {
       cell.className = 'schedule-cell ' + ({yes:'status-yes',pm:'status-pm',no:'status-no'}[status] || '');
     });
     addCell(row, person.note || '-');
-    addCell(row, new Date(person.updatedAt * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}));
+    addCell(row, person.updatedAt ? new Date(person.updatedAt * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}) : '-');
   }
 }
 async function loadSanctuary() {
@@ -364,7 +405,7 @@ async function loadSanctuary() {
   const result = await api('/api/sanctuary?' + query.toString());
   if (activeSection !== sectionWhenRequested || activeWeek !== weekWhenRequested) return;
   sanctuaryRows = result.entries;
-  sanctuaryCounterpart = result.counterpart || null;
+  sanctuaryIsMember = !!result.isMember;
   renderSanctuary();
 }
 async function switchSection(section) {
@@ -402,20 +443,6 @@ $('reloadSchedule').addEventListener('click', async () => {
   try { await loadSanctuary(); $('scheduleMessage').textContent = ''; }
   catch (error) { $('scheduleMessage').textContent = error.message; }
 });
-$('copySchedule').addEventListener('click', async () => {
-  if (!user || (activeSection !== '4' && activeSection !== '3') || !sanctuaryCounterpart || getMyRow()) return;
-  const section = activeSection;
-  const week = activeWeek;
-  const button = $('copySchedule');
-  button.disabled = true;
-  $('scheduleMessage').textContent = '다른 성역의 일정을 가져오는 중...';
-  try {
-    await api('/api/sanctuary/link', 'POST', { sanctuary: section, weekStart: week });
-    await loadSanctuary();
-    $('scheduleMessage').textContent = '일정을 가져왔습니다. 이제 4성역과 3성역의 요일별 일정이 함께 갱신됩니다.';
-  } catch (error) { $('scheduleMessage').textContent = error.message; }
-  finally { button.disabled = false; }
-});
 $('scheduleForm').addEventListener('submit', async event => {
   event.preventDefault();
   if (!user || activeSection === 'characters') return;
@@ -438,13 +465,13 @@ $('scheduleForm').addEventListener('submit', async event => {
 });
 $('clearSchedule').addEventListener('click', async () => {
   if (!user || activeSection === 'characters') return;
-  if (!getMyRow()) {
-    $('scheduleMessage').textContent = '삭제할 일정이 없습니다.';
+  if (!sanctuaryIsMember) {
+    $('scheduleMessage').textContent = '고정 명단에 있는 참여자만 수정할 수 있습니다.';
     return;
   }
   const confirmText = activeSection === '2'
-    ? '이번 주 2성역 일정을 삭제할까요?'
-    : '이 성역의 이번 주 참여 일정을 삭제하고 연동을 해제할까요? 다른 성역의 일정은 남습니다.';
+    ? '이번 주 2성역 가능 여부를 초기화할까요? 고정 명단은 유지됩니다.'
+    : '이번 주 가능 여부를 초기화할까요? 4성역과 3성역에 함께 반영되며 고정 명단은 유지됩니다.';
   if (!confirm(confirmText)) return;
   const button = $('clearSchedule');
   button.disabled = true;
@@ -456,7 +483,38 @@ $('clearSchedule').addEventListener('click', async () => {
       note: ''
     });
     await loadSanctuary();
-    $('scheduleMessage').textContent = '이 성역의 일정만 삭제했습니다. 다른 성역의 일정은 유지됩니다.';
+    $('scheduleMessage').textContent = activeSection === '2' ? '이번 주 일정이 초기화되었습니다.' : '이번 주 가능 여부가 초기화되어 4·3성역에 함께 반영되었습니다.';
   } catch (error) { $('scheduleMessage').textContent = error.message; }
   finally { button.disabled = false; }
 });
+
+// 고정 참여 인원은 한 번 등록하면 모든 주차의 전체 참여 일정에 표시된다.
+$('membersForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!user || activeSection === 'characters') return;
+  const names = $('memberNames').value.split(/[,\n\r]+/).map(x => x.trim()).filter(Boolean);
+  if (!names.length) {
+    $('membersMessage').textContent = '추가할 참여자 닉네임을 입력해 주세요.';
+    return;
+  }
+  const button = $('addMembers');
+  button.disabled = true;
+  $('membersMessage').textContent = '명단 등록 중...';
+  try {
+    await api('/api/sanctuary/members', 'POST', { sanctuary: activeSection, nicknames: names });
+    $('memberNames').value = '';
+    await loadSanctuary();
+    $('membersMessage').textContent = '고정 명단에 등록했습니다. 다른 주차에도 자동으로 표시됩니다.';
+  } catch (error) { $('membersMessage').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
+async function removeMember(nickname) {
+  if (!confirm(`${nickname} 님을 이 성역의 고정 명단에서 제외할까요? 다른 성역의 명단과 일정은 유지됩니다.`)) return;
+  $('membersMessage').textContent = '명단 변경 중...';
+  try {
+    await api('/api/sanctuary/members', 'DELETE', { sanctuary: activeSection, nickname });
+    await loadSanctuary();
+    $('membersMessage').textContent = `${nickname} 님을 이 성역 명단에서 제외했습니다.`;
+  } catch (error) { $('membersMessage').textContent = error.message; }
+}

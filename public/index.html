@@ -326,6 +326,7 @@
       /* AION2_OD_COUNTDOWN_SHARED_NOTES_V1 */
     .od1-next-recovery-countdown { display:inline-block; font-variant-numeric:tabular-nums; color:var(--gold); font-weight:700; white-space:nowrap; }
   </style>
+  <link rel="stylesheet" href="/content-schedule.css">
 </head>
 <body>
   <header>
@@ -354,6 +355,7 @@
         <button class="main-tab" type="button" data-section="3">3성역 · 무스펠</button>
         <button class="main-tab" type="button" data-section="2">2성역 · 침식</button>
         <button class="main-tab" type="button" data-section="homework">숙제</button>
+        <button class="main-tab" type="button" data-section="contents">컨텐츠 일정표</button>
       </nav>
       <section id="characterPanel">
       <div class="sectionhead"><div><h1>아이온2 관리 대시보드</h1><p class="muted">캐릭터명과 서버를 선택하면 직업·아이템 레벨·남툴을 자동 조회합니다.</p></div><span class="tag">1단계 · 베타</span></div>
@@ -469,12 +471,64 @@
           <p id="partyMessage" class="message" role="status"></p>
         </div>
       </section>
+      <!-- AION2_CONTENT_SCHEDULE_V1: user-provided 2026-10-29 screenshot reference -->
+      <section id="contentSchedulePanel" class="cs-wrap" hidden aria-labelledby="contentScheduleTitle">
+        <header class="cs-page-header">
+          <div><h1 id="contentScheduleTitle">컨텐츠 일정표</h1><p>24시간 기준 (KST)</p></div>
+          <div class="cs-logo" aria-label="AION 2">AION<span>2</span></div>
+        </header>
+        <div class="cs-section-heading"><h2>주간 시간표</h2></div>
+        <div class="cs-legend" aria-label="콘텐츠 종류"><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span><span class="cs-event cs-artifact"><span aria-hidden="true">◈</span> 아티쟁</span><span class="cs-event cs-boss"><span aria-hidden="true">♙</span> 어비스 보스</span><span class="cs-event cs-nahma"><span aria-hidden="true">♛</span> 나흐마</span><span class="cs-event cs-outland"><span aria-hidden="true">◎</span> 아웃랜드</span><span class="cs-event cs-rift"><span aria-hidden="true">◉</span> 균열지대</span><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></div>
+        <div class="cs-scroll"><table class="cs-week-table" aria-label="월요일부터 일요일까지 주간 콘텐츠 시간표">
+          <thead><tr><th scope="col">시간</th><th class="cs-day cs-day-0" scope="col">월</th><th class="cs-day cs-day-1" scope="col">화</th><th class="cs-day cs-day-2" scope="col">수<small>주간 리셋</small></th><th class="cs-day cs-day-3" scope="col">목</th><th class="cs-day cs-day-4" scope="col">금</th><th class="cs-day cs-day-5" scope="col">토</th><th class="cs-day cs-day-6" scope="col">일</th><th scope="col">시간</th></tr></thead>
+          <tbody><tr><th scope="row" class="cs-time">01:00</th><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><th scope="row" class="cs-time">01:00</th></tr><tr><th scope="row" class="cs-time">05:00</th><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><th scope="row" class="cs-time">05:00</th></tr><tr><th scope="row" class="cs-time">09:00</th><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><th scope="row" class="cs-time">09:00</th></tr><tr><th scope="row" class="cs-time">11:00<br>~ 13:30</th><td colspan="7" class="cs-full-event"><span class="cs-event cs-outland"><span aria-hidden="true">◎</span> 어비스 아웃랜드</span></td><th scope="row" class="cs-time">11:00<br>~ 13:30</th></tr><tr><th scope="row" class="cs-time">13:00</th><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><th scope="row" class="cs-time">13:00</th></tr><tr><th scope="row" class="cs-time">17:00</th><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></td><th scope="row" class="cs-time">17:00</th></tr><tr><th scope="row" class="cs-time">20:00</th><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><th scope="row" class="cs-time">20:00</th></tr><tr><th scope="row" class="cs-time">20:00<br>~ 23:30</th><td colspan="7" class="cs-full-event"><span class="cs-event cs-outland"><span aria-hidden="true">◎</span> 어비스 아웃랜드</span></td><th scope="row" class="cs-time">20:00<br>~ 23:30</th></tr><tr><th scope="row" class="cs-time">21:00</th><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><td><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></td><th scope="row" class="cs-time">21:00</th></tr><tr><th scope="row" class="cs-time">22:00</th><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-rift"><span aria-hidden="true">◉</span> 균열지대</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-rift"><span aria-hidden="true">◉</span> 균열지대</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-dash">—</span></td><th scope="row" class="cs-time">22:00</th></tr><tr><th scope="row" class="cs-time">23:00</th><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><td><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></td><td><span class="cs-dash">—</span></td><th scope="row" class="cs-time">23:00</th></tr></tbody>
+        </table></div>
+        <div class="cs-section-heading"><h2>콘텐츠별 안내</h2></div>
+        <div class="cs-guides"><div class="cs-guide-card">
+      <div class="cs-guide-heading"><span class="cs-event cs-sun"><span aria-hidden="true">☼</span> 카이아</span></div>
+      <strong>매일 · 4시간마다</strong><p>01:00 / 05:00 / 09:00<br>13:00 / 17:00 / 21:00</p>
+      
+    </div><div class="cs-guide-card">
+      <div class="cs-guide-heading"><span class="cs-event cs-agro"><span aria-hidden="true">♨</span> 아그로</span></div>
+      <strong>매일</strong><p>09:00 / 21:00</p>
+      
+    </div><div class="cs-guide-card">
+      <div class="cs-guide-heading"><span class="cs-event cs-outland"><span aria-hidden="true">◎</span> 어비스 아웃랜드</span></div>
+      <strong>매일</strong><p>11:00 ~ 13:30<br>20:00 ~ 23:30</p>
+      <small>운영 시간 내 30분마다 입장 가능</small>
+    </div><div class="cs-guide-card">
+      <div class="cs-guide-heading"><span class="cs-event cs-rift"><span aria-hidden="true">◉</span> 균열지대</span></div>
+      <strong>화 · 목</strong><p>22:00</p>
+      
+    </div><div class="cs-guide-card">
+      <div class="cs-guide-heading"><span class="cs-event cs-riftwar"><span aria-hidden="true">⚔</span> 시공쟁탈전</span></div>
+      <strong>월 · 목 · 토</strong><p>20:00 / 23:00</p>
+      <small>11월 11일 종료</small>
+    </div></div>
+        <div class="cs-section-heading"><h2>그룹별 일정</h2></div>
+        <div class="cs-scroll"><table class="cs-group-table" aria-label="1~3그룹 콘텐츠 일정">
+          <thead><tr><th scope="col">콘텐츠</th><th scope="col">요일</th><th scope="col">1그룹</th><th scope="col">2그룹</th><th scope="col">3그룹</th></tr></thead>
+          <tbody><tr><td><span class="cs-event cs-artifact"><span aria-hidden="true">◈</span> 아티쟁</span></td><td>수 · 토</td><td>21:20</td><td>21:50</td><td>22:20</td></tr><tr><td><span class="cs-event cs-boss"><span aria-hidden="true">♙</span> 어비스 보스</span></td><td>수 · 토</td><td>21:45</td><td>22:15</td><td>22:45</td></tr><tr><td><span class="cs-event cs-nahma"><span aria-hidden="true">♛</span> 나흐마</span></td><td>금 · 일</td><td>22:00</td><td>22:30</td><td>23:00</td></tr></tbody>
+        </table></div>
+        <div class="cs-section-heading cs-matches-head"><h2>서버 매칭표</h2><p>적용 기간 2026.10.21 ~ 2026.11.11</p></div>
+        <div class="cs-server-grid"><div class="cs-server-card">
+      <h3 class="cs-group-1">1그룹</h3>
+      <table><thead><tr><th>번호</th><th>서부</th><th>동부</th></tr></thead><tbody><tr><td class="cs-server-num">1</td><td>시엘</td><td>이스라펠</td></tr><tr><td class="cs-server-num">4</td><td>트리니엘</td><td>네몬</td></tr><tr><td class="cs-server-num">7</td><td>아리엘</td><td>마르쿠탄</td></tr><tr><td class="cs-server-num">10</td><td>히타니에</td><td>루터스</td></tr><tr><td class="cs-server-num">13</td><td>타하바타</td><td>코치룽</td></tr><tr><td class="cs-server-num">16</td><td>카샤카</td><td>브리트라</td></tr><tr><td class="cs-server-num">19</td><td>이스타르</td><td>지켈</td></tr></tbody></table>
+    </div><div class="cs-server-card">
+      <h3 class="cs-group-2">2그룹</h3>
+      <table><thead><tr><th>번호</th><th>서부</th><th>동부</th></tr></thead><tbody><tr><td class="cs-server-num">2</td><td>네자칸</td><td>루드라</td></tr><tr><td class="cs-server-num">5</td><td>카이시넬</td><td>바바룽</td></tr><tr><td class="cs-server-num">8</td><td>에레슈키갈</td><td>루미엘</td></tr><tr><td class="cs-server-num">11</td><td>나니아</td><td>무닌</td></tr><tr><td class="cs-server-num">14</td><td>페르노스</td><td>메스람타에다</td></tr><tr><td class="cs-server-num">17</td><td>젠카카</td><td>울고른</td></tr><tr><td class="cs-server-num">20</td><td>티아마트</td><td>크로메데</td></tr></tbody></table>
+    </div><div class="cs-server-card">
+      <h3 class="cs-group-3">3그룹</h3>
+      <table><thead><tr><th>번호</th><th>서부</th><th>동부</th></tr></thead><tbody><tr><td class="cs-server-num">3</td><td>바이젤</td><td>아스펠</td></tr><tr><td class="cs-server-num">6</td><td>유스티엘</td><td>바카르마</td></tr><tr><td class="cs-server-num">9</td><td>프레기온</td><td>이스할겐</td></tr><tr><td class="cs-server-num">12</td><td>하달</td><td>파프니르</td></tr><tr><td class="cs-server-num">15</td><td>다미누</td><td>오다르</td></tr><tr><td class="cs-server-num">18</td><td>챈카룽</td><td>인드나흐</td></tr><tr><td class="cs-server-num">21</td><td>포에타</td><td>콰이링</td></tr></tbody></table>
+    </div></div>
+        <p class="cs-reference-note">첨부 이미지 기준 일정표입니다. 종료 또는 변경된 콘텐츠 일정은 별도 업데이트가 필요합니다.</p>
+      </section>
       <section id="homeworkPanel" hidden>
         <div class="sectionhead" style="flex-wrap:wrap;gap:14px">
           <div><h1>숙제</h1><p class="muted">접속한 닉네임으로 등록된 캐릭터의 숙제만 표시하고 저장합니다.</p></div>
           <span class="tag" id="hwCurrentNick">슬롱 님의 숙제</span>
         </div>
-        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑은 <strong>수요일·토요일 오후 9시(KST)</strong>에 별도로 초기화됩니다. 오드1·오드2 수량과 오드합은 주간 초기화 없이 계속 유지됩니다. 등록 캐릭터는 유지됩니다.</p>
+        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매&제작 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑은 <strong>수요일·토요일 오후 9시(KST)</strong>에 별도로 초기화됩니다. 오드1·오드2 수량과 오드합은 주간 초기화 없이 계속 유지됩니다. 등록 캐릭터는 유지됩니다.</p>
         <div id="hwTableView" hidden>
           <div class="grid">
             <div class="stat">내 캐릭터<strong id="hwCharacterCount">0</strong></div>
@@ -484,7 +538,7 @@
           <div class="card">
             <div class="sectionhead"><h2>이번 주 숙제 현황</h2><div class="actions" style="margin-top:0"><button class="secondary small" id="hwReload" type="button">새로고침</button></div></div>
             <p class="muted" id="hwWeekLabel"></p>
-            <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th title="수기 입력 상한 840 · 일반 회복 상한 560, 멤버십 회복 상한 840">오드1<br><small>840</small></th><th title="수기 입력 상한 2000">오드2<br><small>2000</small></th><th>오드합</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매</th><th title="오드1 자동 회복: 체크 시 멤버십 +15/3시간, 미체크 시 일반 +10/3시간">멤버십</th></tr></thead><tbody id="hwRows"></tbody></table></div>
+            <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th title="수기 입력 상한 840 · 일반 회복 상한 560, 멤버십 회복 상한 840">오드1<br><small>840</small></th><th title="수기 입력 상한 2000">오드2<br><small>2000</small></th><th>오드합</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매&제작</th><th title="오드1 자동 회복: 체크 시 멤버십 +15/3시간, 미체크 시 일반 +10/3시간">멤버십</th></tr></thead><tbody id="hwRows"></tbody></table></div>
             <p class="message" id="hwMessage" role="status"></p>
             <p class="muted" style="font-size:13px">캐릭터 관리에서 현재 로그인 닉네임으로 등록한 캐릭터만 표시됩니다. 완료/미완료 버튼은 즉시 저장되며, 오드1은 멤버십 체크 여부에 따라 수기 입력 시각부터 3시간마다 예상 회복량이 반영됩니다. (일반 +10·회복 상한 560 / 멤버십 +15·회복 상한 840) 오드2는 자동 회복되지 않습니다. 수기 입력은 오드1 최대 840, 오드2 최대 2,000이며 초과하면 저장되지 않습니다. 오드합은 자동 계산됩니다.</p>
           </div>

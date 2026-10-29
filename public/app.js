@@ -515,6 +515,7 @@ async function loadSanctuary() {
 async function switchSection(section) {
   activeSection = section;
   document.body.classList.toggle('homework-mode', section === 'homework');
+  document.body.classList.toggle('content-schedule-mode', section === 'contents');
   document.querySelectorAll('[data-section]').forEach(button => {
     button.classList.toggle('active', button.dataset.section === section);
     button.setAttribute('aria-selected', button.dataset.section === section ? 'true' : 'false');
@@ -522,11 +523,13 @@ async function switchSection(section) {
   $('characterPanel').hidden = section !== 'characters';
   $('sanctuaryPanel').hidden = !['4','3','2'].includes(section);
   $('homeworkPanel').hidden = section !== 'homework';
+  $('contentSchedulePanel').hidden = section !== 'contents';
   if (section === 'homework') {
     try { await loadHomework(); }
     catch(error) { $('hwMessage').textContent = error.message; }
     return;
   }
+  if (section === 'contents') return;
   if (section !== 'characters') {
     $('sanctuaryTitle').textContent = sanctuaryNames[section];
     $('scheduleMessage').textContent = '';
@@ -1055,7 +1058,7 @@ async function loadHomework() {
 function renderHomework() {
   if (!homeworkData) return;
   const rows = homeworkData.characters || [];
-  const tasks = homeworkData.tasks || [];
+  const tasks = (homeworkData.tasks || []).map(task => ({ ...task, label: task.label === '오드구매' ? '오드구매&제작' : task.label }));
   const completed = rows.reduce((sum, ch) => sum + ch.completed.length, 0);
   const possible = rows.length * tasks.length;
   $('hwCharacterCount').textContent = String(rows.length);

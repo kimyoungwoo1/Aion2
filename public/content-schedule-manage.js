@@ -63,7 +63,7 @@
     }
     grid.replaceChildren(...cards);
     $('csServerPeriod').textContent = `적용 기간 ${formatDate(data.startDate)} ~ ${formatDate(data.endDate)}`;
-    summary.textContent = '서버 매칭표 펼치기';
+    summary.textContent = '서버 매칭표';
   }
 
   function setEditorFromCurrent() {

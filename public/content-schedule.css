@@ -126,3 +126,40 @@ body.content-schedule-mode main { max-width: 1250px; }
  .cs-legend { grid-template-columns: repeat(4,minmax(0,1fr)); }
  .cs-guides { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+/* AION2_SERVER_MATCHES_VISIBLE_COLUMNS_V1: display all three matching columns */
+.cs-server-details > .cs-static-heading {
+  padding: 10px 14px;
+  background: #182338;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cs-server-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cs-server-card { min-width: 0; }
+/* The site's global `table { min-width:780px }` was clipping 2/3 columns! */
+.cs-server-card table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.cs-server-card th,.cs-server-card td {
+  box-sizing: border-box;
+  text-align: center;
+  vertical-align: middle;
+  padding: 6px 4px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.4;
+  font-size: 12px;
+}
+.cs-server-card th:nth-child(1),.cs-server-card td:nth-child(1),
+.cs-server-card .cs-server-num { width: 17%; }
+.cs-server-card th:nth-child(2),.cs-server-card td:nth-child(2) { width: 38%; }
+.cs-server-card th:nth-child(3),.cs-server-card td:nth-child(3) { width: 45%; }
+@media (max-width: 750px) {
+  .cs-server-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -226,6 +226,29 @@ async function lookupCharacter(env, characterName, serverId) {
     new LookupError('캐릭터 API 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.');
 }
 
+
+// 매주 월요일~일요일, 성역별/닉네임별 일정을 별도로 저장.
+const SANCTUARIES = new Set(['4', '3', '2']);
+const STATUS_VALUES = new Set(['', 'yes', 'pm', 'no']);
+function validMonday(value) {
+  if (typeof value !== 'string' || !/^20[2-3]\d-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(value + 'T00:00:00.000Z');
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value && date.getUTCDay() === 1;
+}
+function formatSanctuaryRow(row) {
+  let statuses;
+  try { statuses = JSON.parse(row.statuses); }
+  catch { statuses = []; }
+  if (!Array.isArray(statuses) || statuses.length !== 7) statuses = Array(7).fill('');
+  return {
+    nickname: row.nickname,
+    statuses: statuses.map(s => STATUS_VALUES.has(s) ? s : ''),
+    note: row.note,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at
+  };
+}
+
 async function api(request, env, path) {
   const method = request.method;
   const now = Math.floor(Date.now() / 1000);
@@ -273,6 +296,51 @@ async function api(request, env, path) {
 
   if (method === 'GET' && path === '/api/servers') {
     return json({ servers: AION2_SERVERS });
+  }
+
+
+  if (path === '/api/sanctuary' && method === 'GET') {
+    const url = new URL(request.url);
+    const sanctuary = url.searchParams.get('sanctuary');
+    const weekStart = url.searchParams.get('weekStart');
+    if (!SANCTUARIES.has(sanctuary) || !validMonday(weekStart)) {
+      return json({ error: '성역 또는 주차가 올바르지 않습니다.' }, 400);
+    }
+    const rows = await env.DB.prepare(
+      'SELECT nickname, statuses, note, updated_by, updated_at FROM sanctuary_schedules ' +
+      'WHERE sanctuary = ? AND week_start = ? ORDER BY nickname COLLATE NOCASE LIMIT 300'
+    ).bind(sanctuary, weekStart).all();
+    return json({ sanctuary, weekStart, entries: rows.results.map(formatSanctuaryRow) });
+  }
+
+  if (path === '/api/sanctuary' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const weekStart = body.weekStart;
+    const statuses = body.statuses;
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    if (!SANCTUARIES.has(sanctuary) || !validMonday(weekStart) ||
+        !Array.isArray(statuses) || statuses.length !== 7 ||
+        !statuses.every(value => typeof value === 'string' && STATUS_VALUES.has(value)) ||
+        typeof body.note !== 'string' || note.length > 300 ||
+        /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) {
+      return json({ error: '일정 입력 값을 확인해 주세요.' }, 400);
+    }
+    // 비어 있는 일정은 삭제하고, 과거 주차의 다른 데이터는 보존한다.
+    if (statuses.every(value => value === '') && note === '') {
+      await env.DB.prepare(
+        'DELETE FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
+      ).bind(sanctuary, weekStart, user.nickname).run();
+      return json({ success: true, cleared: true });
+    }
+    await env.DB.prepare(
+      'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
+      'nickname = excluded.nickname, statuses = excluded.statuses, note = excluded.note, ' +
+      'updated_by = excluded.updated_by, updated_at = excluded.updated_at'
+    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), note, user.nickname, now).run();
+    return json({ success: true });
   }
 
   if (method === 'GET' && path === '/api/characters') {

@@ -46,6 +46,28 @@
     [hidden] { display:none !important; }
     @media(max-width:750px) { h1{font-size:24px} .grid{grid-template-columns:1fr 1fr} .formgrid{grid-template-columns:1fr 1fr} header{padding:17px 20px} }
     @media(max-width:470px) { .formgrid,.grid{grid-template-columns:1fr} .card{padding:18px} .topright{gap:7px} }
+
+    .main-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:22px 0 24px; border-bottom:1px solid var(--line); padding-bottom:12px; }
+    .main-tab { background:#162137; color:var(--muted); border:1px solid var(--line); padding:11px 16px; border-radius:9px; }
+    .main-tab.active { color:#201913; background:var(--gold); border-color:var(--gold); }
+    .week-controls { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .week-label { font-size:14px; min-width:200px; text-align:center; color:var(--gold); font-weight:700; }
+    .availability-editor { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; margin:16px 0 8px; }
+    .availability-item { padding:12px 9px; background:#111b2e; border:1px solid var(--line); border-radius:10px; min-width:0; }
+    .availability-item label { margin:0 0 10px; font-weight:700; color:var(--gold); }
+    .availability-item select { padding:10px 5px; font-size:14px; }
+    .schedule-summary { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; }
+    .schedule-summary > div { padding:12px 8px; border:1px solid var(--line); border-radius:10px; text-align:center; background:#111b2e; }
+    .schedule-summary .sumdate { color:var(--gold); font-size:13px; margin-bottom:9px; font-weight:700; }
+    .schedule-summary .sumcount { font-size:13px; line-height:1.9; }
+    .summary-number { font-weight:800; color:#fff; }
+    .schedule-cell { font-size:12px; white-space:nowrap; }
+    .status-yes { color:#f3c975; }
+    .status-pm { color:#85c7fa; }
+    .status-no { color:#9ca3af; }
+    .mine-row { background:#24324a; }
+    @media(max-width:920px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+    @media(max-width:520px) { .availability-editor,.schedule-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .week-label{min-width:0} }
   </style>
 </head>
 <body>
@@ -69,6 +91,13 @@
     </section>
 
     <section id="appView" hidden>
+      <nav class="main-tabs" aria-label="관리 메뉴">
+        <button class="main-tab active" type="button" data-section="characters">캐릭터 관리</button>
+        <button class="main-tab" type="button" data-section="4">4성역 · 델트라스</button>
+        <button class="main-tab" type="button" data-section="3">3성역 · 무스펠</button>
+        <button class="main-tab" type="button" data-section="2">2성역 · 침식</button>
+      </nav>
+      <section id="characterPanel">
       <div class="sectionhead"><div><h1>아이온2 관리 대시보드</h1><p class="muted">캐릭터명과 서버를 선택하면 직업·아이템 레벨·남툴을 자동 조회합니다.</p></div><span class="tag">1단계 · 베타</span></div>
       <div class="grid">
         <div class="stat">등록 캐릭터<strong id="characterCount">0</strong></div>
@@ -90,12 +119,43 @@
       </div>
       <div class="card">
         <div class="sectionhead"><h2>캐릭터 목록</h2><button class="secondary small" id="refresh">새로고침</button></div>
-        <div class="tablewrap"><table><thead><tr><th>소유자</th><th>캐릭터명</th><th>서버</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th>API 조회 시각</th><th>수정자</th><th>관리</th></tr></thead><tbody id="characterRows"></tbody></table></div>
+        <div class="tablewrap"><table><thead><tr><th>소유자</th><th>캐릭터명</th><th>서버</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th>전투력 갱신 시각</th><th>수정자</th><th>관리</th></tr></thead><tbody id="characterRows"></tbody></table></div>
       </div>
-      <div class="card"><h2>성역 일정</h2><p class="muted">다음 단계에서 날짜별 가능 / 오후 가능 / 불가능 입력과 참여 인원 집계를 추가할 예정입니다.</p></div>
-      <p class="muted" style="font-size:13px">공용 코드 방식은 닉네임을 누구나 입력할 수 있으므로 수정자 표시는 신원 확인 기록이 아닙니다. 이 코드를 아는 사람은 모든 캐릭터를 수정·삭제할 수 있습니다.</p>
+      </section>
+      <section id="sanctuaryPanel" hidden>
+        <div class="sectionhead" style="flex-wrap:wrap;gap:16px;margin-bottom:20px">
+          <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">성역별 일정은 서로 독립적으로 저장됩니다.</p></div>
+          <div class="week-controls">
+            <button class="secondary small" type="button" id="prevWeek">이전 주</button>
+            <span class="week-label" id="weekLabel"></span>
+            <button class="secondary small" type="button" id="nextWeek">다음 주</button>
+            <button class="secondary small" type="button" id="thisWeek">이번 주</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sectionhead"><h2>내 참여 일정</h2><span class="tag" id="scheduleNickname"></span></div>
+          <p class="muted">날짜별로 가능 여부를 선택하고 저장해 주세요. 미입력은 아직 일정을 제출하지 않은 상태입니다.</p>
+          <form id="scheduleForm">
+            <div id="scheduleEditor" class="availability-editor"></div>
+            <label for="scheduleNote">비고 (선택)</label>
+            <textarea id="scheduleNote" maxlength="300" rows="2" placeholder="예: 토요일 오후 8시 이후 가능"></textarea>
+            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">내 일정 비우기</button></div>
+            <p class="message" id="scheduleMessage" role="status"></p>
+          </form>
+        </div>
+        <div class="card">
+          <div class="sectionhead"><h2>날짜별 참여 가능 인원</h2><span class="tag" id="scheduleCount"></span></div>
+          <div id="scheduleSummary" class="schedule-summary"></div>
+          <p class="muted" style="font-size:13px">오전 가능: '가능' 선택 인원 · 오후 가능: '가능' 및 '오후 가능' 선택 인원</p>
+        </div>
+        <div class="card">
+          <div class="sectionhead"><h2>전체 참여 일정</h2><button type="button" class="secondary small" id="reloadSchedule">새로고침</button></div>
+          <div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>닉네임</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th>토</th><th>일</th><th>비고</th><th>수정 시각</th></tr></thead><tbody id="scheduleRows"></tbody></table></div>
+        </div>
+      </section>
+      <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=server-dropdown-20261029"></script>
+  <script type="module" src="/app.js?v=sanctuary-tabs-20261029"></script>
 </body>
 </html>

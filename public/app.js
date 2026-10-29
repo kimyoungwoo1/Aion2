@@ -110,11 +110,11 @@ async function deleteCharacter(character) {
 async function refreshCharacter(character, button) {
   button.disabled = true;
   const message = $('characterMessage');
-  message.textContent = `${character.character_name} API 정보 조회 중...`;
+  message.textContent = `${character.character_name} 전투력 갱신 중...`;
   try {
     await api(`/api/characters/${character.id}/refresh`, 'POST');
     await loadCharacters();
-    message.textContent = `${character.character_name} 정보 갱신 완료`;
+    message.textContent = `${character.character_name} 전투력 갱신 완료`;
   } catch (error) {
     message.textContent = error.message;
   } finally {
@@ -149,7 +149,7 @@ function renderCharacters() {
     const controls = row.insertCell();
     const refresh = document.createElement('button');
     refresh.className = 'secondary small';
-    refresh.textContent = 'API 갱신';
+    refresh.textContent = '전투력 갱신';
     refresh.addEventListener('click', () => refreshCharacter(item, refresh));
     const edit = document.createElement('button');
     edit.className = 'secondary small';
@@ -202,7 +202,7 @@ $('characterForm').addEventListener('submit', async event => {
   event.preventDefault();
   const button = $('saveCharacter');
   button.disabled = true;
-  $('characterMessage').textContent = '외부 캐릭터 API 조회 및 저장 중...';
+  $('characterMessage').textContent = '캐릭터 정보 조회 및 저장 중...';
   try {
     const payload = {
       characterName: $('characterName').value.trim(),
@@ -234,3 +234,173 @@ $('refresh').addEventListener('click', () => loadCharacters().catch(error => {
     else showLogin();
   }
 })();
+
+
+// =====================================================
+// 성역 일정: 4 델트라스 / 3 무스펠 / 2 침식 독립 관리
+// =====================================================
+const sanctuaryNames = { '4': '4성역 · 델트라스', '3': '3성역 · 무스펠', '2': '2성역 · 침식' };
+const weekDayNames = ['월', '화', '수', '목', '금', '토', '일'];
+const availabilityLabels = { '': '미입력', yes: '가능', pm: '오후 가능', no: '불가능' };
+let activeSection = 'characters';
+let activeWeek = mondayFor(seoulToday());
+let sanctuaryRows = [];
+
+function seoulToday() {
+  return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+}
+function shiftDay(date, days) {
+  const d = new Date(date + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function mondayFor(date) {
+  const d = new Date(date + 'T00:00:00Z');
+  return shiftDay(date, -((d.getUTCDay() + 6) % 7));
+}
+function shortDate(date) {
+  return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+}
+function weekDates() {
+  return weekDayNames.map((_, idx) => shiftDay(activeWeek, idx));
+}
+function createAvailabilityEditor() {
+  const container = $('scheduleEditor');
+  container.replaceChildren();
+  weekDates().forEach((date, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'availability-item';
+    const label = document.createElement('label');
+    label.htmlFor = `avail-${idx}`;
+    label.textContent = `${weekDayNames[idx]} · ${shortDate(date)}`;
+    const select = document.createElement('select');
+    select.id = `avail-${idx}`;
+    select.name = `day-${idx}`;
+    for (const [value, text] of Object.entries(availabilityLabels)) select.add(new Option(text, value));
+    wrap.append(label, select);
+    container.append(wrap);
+  });
+  const dates = weekDates();
+  $('weekLabel').textContent = `${activeWeek} ~ ${dates[6]}`;
+}
+function getMyRow() {
+  return sanctuaryRows.find(row => row.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR'));
+}
+function renderSanctuary() {
+  const mine = getMyRow();
+  createAvailabilityEditor();
+  $('scheduleNickname').textContent = `${user.nickname} 님`;
+  const mineStatuses = mine?.statuses || Array(7).fill('');
+  mineStatuses.forEach((status, index) => { $(`avail-${index}`).value = status; });
+  $('scheduleNote').value = mine?.note || '';
+  $('scheduleCount').textContent = `일정 등록 ${sanctuaryRows.length}명`;
+  const summary = $('scheduleSummary');
+  summary.replaceChildren();
+  weekDates().forEach((date, idx) => {
+    const yes = sanctuaryRows.filter(row => row.statuses[idx] === 'yes').length;
+    const pm = sanctuaryRows.filter(row => row.statuses[idx] === 'pm').length;
+    const no = sanctuaryRows.filter(row => row.statuses[idx] === 'no').length;
+    const tile = document.createElement('div');
+    const day = document.createElement('div');
+    day.className = 'sumdate';
+    day.textContent = `${weekDayNames[idx]} ${shortDate(date)}`;
+    const content = document.createElement('div');
+    content.className = 'sumcount';
+    const morning = document.createElement('div');
+    morning.textContent = `오전: ${yes}명`;
+    const afternoon = document.createElement('div');
+    afternoon.textContent = `오후: ${yes + pm}명`;
+    const unavailable = document.createElement('div');
+    unavailable.textContent = `불가: ${no}명`;
+    content.append(morning, afternoon, unavailable);
+    tile.append(day, content);
+    summary.append(tile);
+  });
+  const body = $('scheduleRows');
+  body.replaceChildren();
+  if (!sanctuaryRows.length) {
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 10;
+    cell.textContent = '아직 입력된 일정이 없습니다. 위에서 첫 일정을 등록해 보세요.';
+  }
+  for (const person of sanctuaryRows) {
+    const row = body.insertRow();
+    if (person.nickname.toLocaleLowerCase('ko-KR') === user.nickname.toLocaleLowerCase('ko-KR')) row.className = 'mine-row';
+    addCell(row, person.nickname);
+    person.statuses.forEach(status => {
+      const cell = addCell(row, availabilityLabels[status] || '미입력');
+      cell.className = 'schedule-cell ' + ({yes:'status-yes',pm:'status-pm',no:'status-no'}[status] || '');
+    });
+    addCell(row, person.note || '-');
+    addCell(row, new Date(person.updatedAt * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}));
+  }
+}
+async function loadSanctuary() {
+  if (!user || activeSection === 'characters') return;
+  const sectionWhenRequested = activeSection;
+  const weekWhenRequested = activeWeek;
+  const query = new URLSearchParams({ sanctuary: sectionWhenRequested, weekStart: weekWhenRequested });
+  const result = await api('/api/sanctuary?' + query.toString());
+  if (activeSection !== sectionWhenRequested || activeWeek !== weekWhenRequested) return;
+  sanctuaryRows = result.entries;
+  renderSanctuary();
+}
+async function switchSection(section) {
+  activeSection = section;
+  document.querySelectorAll('[data-section]').forEach(button => {
+    button.classList.toggle('active', button.dataset.section === section);
+    button.setAttribute('aria-selected', button.dataset.section === section ? 'true' : 'false');
+  });
+  $('characterPanel').hidden = section !== 'characters';
+  $('sanctuaryPanel').hidden = section === 'characters';
+  if (section !== 'characters') {
+    $('sanctuaryTitle').textContent = sanctuaryNames[section];
+    $('scheduleMessage').textContent = '';
+    try { await loadSanctuary(); }
+    catch (error) { $('scheduleMessage').textContent = error.message; }
+  }
+}
+
+document.querySelectorAll('[data-section]').forEach(button => {
+  button.addEventListener('click', () => switchSection(button.dataset.section));
+});
+async function moveWeek(days) {
+  activeWeek = shiftDay(activeWeek, days);
+  $('scheduleMessage').textContent = '';
+  try { await loadSanctuary(); }
+  catch (error) { $('scheduleMessage').textContent = error.message; }
+}
+$('prevWeek').addEventListener('click', () => moveWeek(-7));
+$('nextWeek').addEventListener('click', () => moveWeek(7));
+$('thisWeek').addEventListener('click', () => {
+  activeWeek = mondayFor(seoulToday());
+  moveWeek(0);
+});
+$('reloadSchedule').addEventListener('click', async () => {
+  try { await loadSanctuary(); $('scheduleMessage').textContent = ''; }
+  catch (error) { $('scheduleMessage').textContent = error.message; }
+});
+$('scheduleForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!user || activeSection === 'characters') return;
+  const button = $('saveSchedule');
+  button.disabled = true;
+  $('scheduleMessage').textContent = '저장 중...';
+  try {
+    await api('/api/sanctuary', 'POST', {
+      sanctuary: activeSection,
+      weekStart: activeWeek,
+      statuses: weekDayNames.map((_, idx) => $(`avail-${idx}`).value),
+      note: $('scheduleNote').value.trim()
+    });
+    await loadSanctuary();
+    $('scheduleMessage').textContent = '참여 일정이 저장되었습니다.';
+  } catch (error) { $('scheduleMessage').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+$('clearSchedule').addEventListener('click', async () => {
+  if (!confirm('이 성역의 이번 주 내 일정을 비울까요?')) return;
+  weekDayNames.forEach((_, idx) => { $(`avail-${idx}`).value = ''; });
+  $('scheduleNote').value = '';
+  $('scheduleForm').requestSubmit();
+});

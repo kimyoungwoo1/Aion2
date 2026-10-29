@@ -1,16 +1,13 @@
-
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "aion2",
   "main": "src/index.js",
   "compatibility_date": "2026-10-29",
-
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": true
   },
-
   "d1_databases": [
     {
       "binding": "DB",
@@ -19,17 +16,16 @@
       "migrations_dir": "migrations"
     }
   ],
-
-  "services": [
-    {
-      "binding": "AION_API",
-      "service": "aion2-api"
-    }
-  ],
-
   "secrets": {
     "required": [
       "ACCESS_CODE"
+    ]
+  },
+  "triggers": {
+    "crons": [
+      "0 20 * * TUE",
+      "0 12 * * WED,SAT",
+      "*/5 9,21 * * *"
     ]
   }
 }

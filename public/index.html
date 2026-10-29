@@ -42,6 +42,8 @@
     th { color:var(--gold); font-size:13px; }
     .message { min-height:19px; color:#f8c3a4; font-size:14px; margin-top:12px; }
     .sectionhead { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .character-refresh-tools { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
+    #characterBulkRefreshTime { font-size:12px; line-height:1.5; }
     .tag { display:inline-block; padding:5px 10px; color:var(--gold); background:#433927; border-radius:20px; font-size:12px; }
     [hidden] { display:none !important; }
     @media(max-width:750px) { h1{font-size:24px} .grid{grid-template-columns:1fr 1fr} .formgrid{grid-template-columns:1fr 1fr} header{padding:17px 20px} }
@@ -298,6 +300,15 @@
     .homework-table th:nth-child(7),.homework-table td:nth-child(7) { width:6%; }
     .hw-od-input { width:100%; min-width:0; padding:8px 2px; text-align:center; border-radius:6px; font-size:12px; appearance:textfield; }
     .hw-od-input::-webkit-inner-spin-button,.hw-od-input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    .hw-od-warning { display:block; margin-top:4px; color:#ff9e96; font-weight:700;
+      font-size:10px; line-height:1.3; overflow-wrap:normal; white-space:normal; }
+    .hw-od-warning[hidden] { display:none; }
+    .hw-od-input.hw-od-invalid { border-color:#ff8177; outline:1px solid #ff8177; background:#38232d; }
+    .homework-table th:last-child,.homework-table td:last-child { width:5%; }
+    .hw-membership-cell { vertical-align:middle; }
+    .hw-membership-checkbox { appearance:auto; width:18px; height:18px; margin:0; cursor:pointer;
+      accent-color:#e9be78; vertical-align:middle; }
+    .hw-membership-checkbox:focus-visible { outline:3px solid #fff; outline-offset:3px; }
     .hw-od-total { color:#e9be78; font-weight:800; font-variant-numeric:tabular-nums; }
     .homework-table th small { color:var(--muted); font-size:10px; font-weight:600; }
     @media(max-width:1050px) { .homework-table { min-width:1060px; } }
@@ -312,6 +323,8 @@
     .hw-character-name { vertical-align:middle; font-weight:650; }
     .homework-table tr.hw-dragging { opacity:.45; }
     .homework-table tr.hw-drag-target { outline:2px dashed #e9be78; outline-offset:-2px; background:#263752; }
+      /* AION2_OD_COUNTDOWN_SHARED_NOTES_V1 */
+    .od1-next-recovery-countdown { display:inline-block; font-variant-numeric:tabular-nums; color:var(--gold); font-weight:700; white-space:nowrap; }
   </style>
 </head>
 <body>
@@ -363,8 +376,7 @@
         </form>
       </div>
       <div class="card">
-        <div class="sectionhead"><h2>캐릭터 목록</h2><button class="secondary small" id="refresh">새로고침</button></div>
-        <p class="owner-sort-hint">로그인한 닉네임의 캐릭터를 먼저 보여주고, 나머지는 가나다순으로 표시합니다.</p>
+        <div class="sectionhead"><h2>캐릭터 목록</h2><div class="character-refresh-tools"><span id="characterBulkRefreshTime" class="muted" aria-live="polite">최근 전체 갱신: 확인 중...</span><button class="secondary small" id="refresh">새로고침</button></div></div>
         <div class="tablewrap"><table><thead><tr><th>소유자</th><th>캐릭터명</th><th>서버</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th>전투력 갱신 시각</th><th>수정자</th><th>관리</th></tr></thead><tbody id="characterRows"></tbody></table></div>
       </div>
       </section>
@@ -462,7 +474,7 @@
           <div><h1>숙제</h1><p class="muted">접속한 닉네임으로 등록된 캐릭터의 숙제만 표시하고 저장합니다.</p></div>
           <span class="tag" id="hwCurrentNick">슬롱 님의 숙제</span>
         </div>
-        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑은 <strong>수요일·토요일 오후 9시(KST)</strong>에 별도로 초기화됩니다. 오드1·오드2 수량도 매주 수요일 오전 5시 기준으로 초기화됩니다. 등록 캐릭터는 유지됩니다.</p>
+        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑은 <strong>수요일·토요일 오후 9시(KST)</strong>에 별도로 초기화됩니다. 오드1·오드2 수량과 오드합은 주간 초기화 없이 계속 유지됩니다. 등록 캐릭터는 유지됩니다.</p>
         <div id="hwTableView" hidden>
           <div class="grid">
             <div class="stat">내 캐릭터<strong id="hwCharacterCount">0</strong></div>
@@ -472,17 +484,14 @@
           <div class="card">
             <div class="sectionhead"><h2>이번 주 숙제 현황</h2><div class="actions" style="margin-top:0"><button class="secondary small" id="hwReload" type="button">새로고침</button></div></div>
             <p class="muted" id="hwWeekLabel"></p>
-            <p class="muted" style="font-size:12px;margin:-7px 0 12px">기본 순서: 남툴 높은 순 · 캐릭터명 왼쪽 <strong style="color:#e9be78">⠿</strong> 아이콘을 잡아 행을 드래그하면 내 정렬 순서가 자동 저장됩니다. (키보드 ↑/↓ 가능) 주간 초기화 후에도 유지됩니다.</p>
-            <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th title="오드1 목표 840">오드1<br><small>840</small></th><th title="오드2 목표 2000">오드2<br><small>2000</small></th><th>오드합</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매</th></tr></thead><tbody id="hwRows"></tbody></table></div>
+            <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th title="수기 입력 상한 840 · 일반 회복 상한 560, 멤버십 회복 상한 840">오드1<br><small>840</small></th><th title="수기 입력 상한 2000">오드2<br><small>2000</small></th><th>오드합</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매</th><th title="오드1 자동 회복: 체크 시 멤버십 +15/3시간, 미체크 시 일반 +10/3시간">멤버십</th></tr></thead><tbody id="hwRows"></tbody></table></div>
             <p class="message" id="hwMessage" role="status"></p>
-            <p class="muted" style="font-size:13px">캐릭터 관리에서 현재 로그인 닉네임으로 등록한 캐릭터만 표시됩니다. 완료/미완료 버튼은 즉시 저장되며, 오드1·오드2는 입력 후 다른 칸을 클릭하면 자동 저장됩니다. 오드합은 자동 계산됩니다.</p>
+            <p class="muted" style="font-size:13px">캐릭터 관리에서 현재 로그인 닉네임으로 등록한 캐릭터만 표시됩니다. 완료/미완료 버튼은 즉시 저장되며, 오드1은 멤버십 체크 여부에 따라 수기 입력 시각부터 3시간마다 예상 회복량이 반영됩니다. (일반 +10·회복 상한 560 / 멤버십 +15·회복 상한 840) 오드2는 자동 회복되지 않습니다. 수기 입력은 오드1 최대 840, 오드2 최대 2,000이며 초과하면 저장되지 않습니다. 오드합은 자동 계산됩니다.</p>
           </div>
         </div>
-        <p class="muted" style="font-size:13px">안내: 공용 접속 코드에서는 닉네임을 임의 입력할 수 있으므로 실제 본인 인증 기능은 아닙니다.</p>
       </section>
-      <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=aion2-homework-custom-order-20261029"></script>
+  <script type="module" src="/app.js?v=aion2-od-membership-check-20261029"></script>
 </body>
 </html>

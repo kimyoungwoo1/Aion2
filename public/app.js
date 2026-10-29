@@ -1,6 +1,8 @@
+import { estimatedOd1, nextOdRecoveryAt, OD1_INPUT_MAX, OD2_INPUT_MAX } from "./od-recovery.js";
 const $ = id => document.getElementById(id);
 let user = null;
 let characters = [];
+let bulkRefresh = { last: null, active: null };
 let editId = null;
 let servers = [];
 const serverById = new Map();
@@ -129,18 +131,23 @@ function nicknameKey(value) {
   return String(value ?? '').trim().normalize('NFC').toLocaleLowerCase('ko-KR');
 }
 
-// 내 캐릭터가 있으면 우선 표시, 그 외에는 가나다순으로 정렬한다.
-// 내 캐릭터가 없다면 모두 가나다순으로 정렬한다.
+// 로그인한 소유자의 캐릭터를 맨 위에 배치한다.
+// 나머지 소유자는 가나다순으로 묶고, 각 소유자의 캐릭터는 남툴 높은 순으로 정렬한다.
 function orderedCharacters(items, currentNickname) {
   const mine = nicknameKey(currentNickname);
   const compare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'ko-KR', {
     sensitivity: 'base', numeric: true
   });
+  const power = item => {
+    const value = Number(item.naddol_k);
+    return Number.isFinite(value) ? value : 0;
+  };
   return [...items].sort((a, b) => {
     const aMine = Boolean(mine) && nicknameKey(a.owner_name) === mine;
     const bMine = Boolean(mine) && nicknameKey(b.owner_name) === mine;
     if (aMine !== bMine) return aMine ? -1 : 1;
     return compare(a.owner_name, b.owner_name)
+      || power(b) - power(a)
       || compare(a.character_name, b.character_name)
       || compare(a.server_id, b.server_id)
       || Number(a.id) - Number(b.id);
@@ -203,10 +210,35 @@ function renderCharacters() {
   }
 }
 
+function renderBulkRefreshStatus() {
+  const label = $('characterBulkRefreshTime');
+  if (!label) return;
+  const {last, active} = bulkRefresh || {};
+  const when = last?.finished_at ? new Date(Number(last.finished_at) * 1000).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }) : '';
+  const previous = when
+    ? `최근 전체 갱신: ${when} · ${Number(last.success_count || 0)}/${Number(last.total_count || 0)}명`
+    : '최근 전체 갱신: 아직 없음';
+  if (active) {
+    const completed = Number(active.success_count || 0) + Number(active.failed_count || 0);
+    label.textContent = `${previous} | 현재 갱신 중 ${completed}/${Number(active.total_count || 0)}명`;
+    label.title = '등록된 캐릭터를 순서대로 갱신하고 있습니다.';
+    return;
+  }
+  label.textContent = previous;
+  label.title = Number(last?.failed_count || 0)
+    ? `조회 실패 ${last.failed_count}명은 기존 정보를 유지했습니다.`
+    : '매일 오전 6시 · 오후 6시 (한국시간) 자동 갱신';
+}
+
 async function loadCharacters() {
   const response = await api('/api/characters');
   characters = response.characters;
+  bulkRefresh = response.bulkRefresh || {last:null,active:null};
   renderCharacters();
+  renderBulkRefreshStatus();
 }
 
 $('loginForm').addEventListener('submit', async event => {
@@ -389,7 +421,7 @@ function renderSanctuary() {
   const syncPanel = $('syncSchedulePanel');
   syncPanel.hidden = activeSection === '2';
   if (activeSection !== '2') {
-    $('syncScheduleText').textContent = '4성역과 3성역에 공통으로 등록된 참여자의 가능 여부는 하나의 일정으로 관리됩니다. 어느 한쪽에서 저장하면 다른 탭에 별도 저장 없이 자동 반영됩니다. 비고는 성역별로 관리됩니다.';
+    $('syncScheduleText').textContent = '4성역과 3성역에 공통으로 등록된 참여자의 가능 여부는 하나의 일정으로 관리됩니다. 어느 한쪽에서 저장하면 다른 탭에 별도 저장 없이 자동 반영됩니다. 일정 비고도 4·3성역에서 자동 동기화됩니다. 캐릭터별 파티 비고는 성역별로 유지됩니다.';
   }
   $('scheduleNickname').textContent = `${user.nickname} 님`;
   const mineStatuses = mine?.statuses || Array(7).fill('');
@@ -547,7 +579,7 @@ $('scheduleForm').addEventListener('submit', async event => {
     });
     await loadSanctuary();
     $('scheduleMessage').textContent = result.synced
-      ? '참여 일정이 저장되고, 다른 성역의 요일별 일정도 동기화되었습니다.'
+      ? '참여 일정이 저장되고, 다른 성역의 요일별 일정과 비고도 동기화되었습니다.'
       : '참여 일정이 저장되었습니다.';
   } catch (error) { $('scheduleMessage').textContent = error.message; }
   finally { button.disabled = false; }
@@ -960,6 +992,7 @@ $('reloadPartyRoster').addEventListener('click', async ()=> {
 // =====================================================
 // 닉네임별 숙제: 로그인 세션의 닉네임 기준으로 서버가 필터링
 // =====================================================
+let homeworkOdLiveUpdaters = [];
 let homeworkData = null;
 let homeworkOrderSaving = false;
 let draggingHomeworkCharacterId = null;
@@ -1004,6 +1037,7 @@ async function saveHomeworkCharacterOrder(ids) {
 }
 
 function resetHomeworkView() {
+  homeworkOdLiveUpdaters = [];
   homeworkData = null;
   $('hwTableView').hidden = true;
   $('hwRows').replaceChildren();
@@ -1028,11 +1062,18 @@ function renderHomework() {
   $('hwCompletedCount').textContent = `${completed} / ${possible}`;
   $('hwCompletedPercent').textContent = `${possible ? Math.round(completed / possible * 100) : 0}%`;
   $('hwWeekLabel').textContent = `${homeworkData.weekStart} 시작 주간 · 일반 숙제: 수요일 05:00 · 어비스회랑: 수·토 21:00 초기화`;
+  // AION2_OD_COUNTDOWN_SHARED_NOTES_V1: display live countdown beside Abyss schedule.
+  const odCountdown = document.createElement('span');
+  odCountdown.id = 'od1NextRecoveryCountdown';
+  odCountdown.className = 'od1-next-recovery-countdown';
+  $('hwWeekLabel').append(' · ', odCountdown);
+  updateOd1NextRecoveryCountdown();
   const tbody = $('hwRows');
+  homeworkOdLiveUpdaters = [];
   tbody.replaceChildren();
   if (!rows.length) {
     const row = tbody.insertRow();
-    const cell = row.insertCell(); cell.colSpan = 15;
+    const cell = row.insertCell(); cell.colSpan = 16;
     cell.textContent = '내 캐릭터가 등록되어 있지 않습니다. 캐릭터 관리에서 소유자 닉네임으로 캐릭터를 등록해 주세요.';
   }
   for (const character of rows) {
@@ -1108,64 +1149,153 @@ function renderHomework() {
     addCell(row, character.className || '-');
     addCell(row, Number(character.itemLevel || 0).toLocaleString('ko-KR'));
     addCell(row, `${Number(character.naddolK || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`);
-    // 오드1/오드2는 캐릭터·주차별 입력값. 변경 시 서버에 자동 저장한다.
+    // Persistent od balances. Od1 is a client/server estimate from a timestamped manual snapshot.
     const od1Cell = row.insertCell();
     const od2Cell = row.insertCell();
     const sumCell = row.insertCell();
+    sumCell.className = 'hw-od-total';
     const odValues = {od1: character.od1, od2: character.od2};
+    const currentOd1 = () => estimatedOd1(
+      character.od1Base, character.od1UpdatedAt, character.od1Membership
+    );
     const displaySum = () => {
       const sum = Number(odValues.od1 || 0) + Number(odValues.od2 || 0);
       sumCell.textContent = sum.toLocaleString('ko-KR');
     };
-    for (const [field, cell] of [['od1', od1Cell], ['od2', od2Cell]]) {
-      const input = document.createElement('input');
+    const od1Input = document.createElement('input');
+    const od2Input = document.createElement('input');
+    const odWarnings = {};
+    const getOdMaximum = field => field === 'od1' ? OD1_INPUT_MAX : OD2_INPUT_MAX;
+    const labelOd = field => field === 'od1' ? '오드1' : '오드2';
+    const validateOdInput = (field, input) => {
+      const limit = getOdMaximum(field);
+      const val = input.value === '' ? null : Number(input.value);
+      let message = '';
+      if (val != null && (!Number.isSafeInteger(val) || val < 0)) {
+        message = '0 이상의 정수를 입력해 주세요.';
+      } else if (val !== null && val > limit) {
+        message = `${labelOd(field)} 최대 ${limit.toLocaleString('ko-KR')} 초과`;
+      }
+      const warning = odWarnings[field];
+      warning.textContent = message;
+      warning.hidden = !message;
+      input.classList.toggle('hw-od-invalid', !!message);
+      input.setAttribute('aria-invalid', message ? 'true' : 'false');
+      if (message) $('hwMessage').textContent = `${character.name} · ${message} (저장되지 않았습니다.)`;
+      return !message;
+    };
+    for (const [field, input, cell] of [
+      ['od1',od1Input,od1Cell],['od2',od2Input,od2Cell]
+    ]) {
       input.type = 'number';
       input.inputMode = 'numeric';
       input.min = '0';
-      input.max = '999999999';
+      input.max = String(getOdMaximum(field));
       input.step = '1';
       input.className = 'hw-od-input';
       input.value = character[field] == null ? '' : String(character[field]);
       input.placeholder = '—';
-      input.setAttribute('aria-label', `${character.name} ${field === 'od1' ? '오드1' : '오드2'} 입력`);
-      const updateSumDraft = () => {
-        odValues[field] = input.value === '' ? null : Number(input.value);
-        if (Number.isFinite(Number(odValues[field]))) displaySum();
-      };
-      input.addEventListener('input', updateSumDraft);
-      input.addEventListener('keydown', event => { if (event.key === 'Enter') input.blur(); });
-      input.addEventListener('change', async () => {
-        const original = character[field];
-        const next = input.value === '' ? null : Number(input.value);
-        if (next === original) return;
-        if (next != null && (!Number.isSafeInteger(next) || next < 0 || next > 999999999)) {
-          $('hwMessage').textContent = '오드 수량은 0 이상의 정수로 입력해 주세요.';
-          input.value = original == null ? '' : String(original);
-          odValues[field] = original;
+      input.setAttribute('aria-label', `${character.name} ${labelOd(field)} 입력, 최대 ${getOdMaximum(field)}`);
+      const warning = document.createElement('span');
+      warning.className = 'hw-od-warning';
+      warning.hidden = true;
+      warning.setAttribute('role', 'alert');
+      odWarnings[field] = warning;
+      input.addEventListener('input', () => {
+        if (!validateOdInput(field, input)) {
+          odValues[field] = field === 'od1' ? currentOd1() : character.od2;
           displaySum();
           return;
         }
-        input.disabled = true;
+        odValues[field] = input.value === '' ? null : Number(input.value);
+        displaySum();
+      });
+      input.addEventListener('keydown', event => { if (event.key === 'Enter') input.blur(); });
+      cell.append(input,warning);
+    }
+    const membershipCheckbox = document.createElement('input');
+    membershipCheckbox.type = 'checkbox';
+    membershipCheckbox.className = 'hw-membership-checkbox';
+    membershipCheckbox.setAttribute('aria-label', `${character.name} 멤버십 사용`);
+    membershipCheckbox.title = '체크: 오드1 3시간마다 +15 (회복 상한 840) / 미체크: +10 (회복 상한 560)';
+    membershipCheckbox.checked = character.od1Membership === 1;
+
+    const refreshOdLive = () => {
+      if (od1Input.isConnected && document.activeElement !== od1Input && !od1Input.disabled && od1Input.getAttribute('aria-invalid') !== 'true') {
+        const estimated = currentOd1();
+        od1Input.value = estimated == null ? '' : String(estimated);
+        odValues.od1 = estimated;
+        displaySum();
+      }
+      od1Input.title = `오드1 자동 회복 예상치 · 다음 회복 ${new Date(nextOdRecoveryAt(Math.floor(Date.now()/1000))*1000).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit'})}`;
+    };
+    homeworkOdLiveUpdaters.push(refreshOdLive);
+    function applyOdResult(result) {
+      character.od1 = result.od1;
+      character.od1Base = result.od1Base;
+      character.od1UpdatedAt = result.od1UpdatedAt;
+      character.od1Membership = result.od1Membership;
+      character.od2 = result.od2;
+      odValues.od2 = result.od2;
+      membershipCheckbox.checked = result.od1Membership === 1;
+      od2Input.value = result.od2 == null ? '' : String(result.od2);
+      refreshOdLive();
+    }
+    for (const [field, input] of [['od1',od1Input],['od2',od2Input]]) {
+      input.addEventListener('change', async () => {
+        const original = field === 'od1' ? currentOd1() : character.od2;
+        const next = input.value === '' ? null : Number(input.value);
+        // Invalid values must remain visible for correction, not be saved.
+        if (!validateOdInput(field, input)) return;
+        if (next === original) return;
+        od1Input.disabled = true;
+        od2Input.disabled = true;
+        membershipCheckbox.disabled = true;
         $('hwMessage').textContent = '오드 수량 저장 중...';
         try {
           const result = await api('/api/homework/od','POST', {
             characterId:character.id,field,value:next
           });
-          character[field] = result[field];
-          odValues[field] = result[field];
-          input.value = character[field] == null ? '' : String(character[field]);
-          displaySum();
+          applyOdResult(result);
           $('hwMessage').textContent = `${character.name} · ${field === 'od1' ? '오드1' : '오드2'} 저장 완료`;
         } catch (error) {
           input.value = original == null ? '' : String(original);
           odValues[field] = original;
           displaySum();
           $('hwMessage').textContent = error.message;
-        } finally { input.disabled = false; }
+        } finally {
+          od1Input.disabled = false;
+          od2Input.disabled = false;
+          membershipCheckbox.disabled = false;
+          refreshOdLive();
+        }
       });
-      cell.append(input);
     }
-    sumCell.className = 'hw-od-total';
+    membershipCheckbox.addEventListener('change', async () => {
+      const original = character.od1Membership === 1;
+      const chosen = membershipCheckbox.checked ? 1 : 0;
+      if (original === membershipCheckbox.checked && character.od1Membership != null) return;
+      od1Input.disabled = true;
+      od2Input.disabled = true;
+      membershipCheckbox.disabled = true;
+      $('hwMessage').textContent = `${character.name} · 멤버십 설정 저장 중...`;
+      try {
+        const result = await api('/api/homework/od/membership','POST', {
+          characterId:character.id,membership:chosen
+        });
+        applyOdResult(result);
+        $('hwMessage').textContent = `${character.name} · 멤버십 ${chosen === 1 ? '적용' : '해제'} 완료`;
+      } catch (error) {
+        membershipCheckbox.checked = original;
+        $('hwMessage').textContent = error.message;
+      } finally {
+        od1Input.disabled = false;
+        od2Input.disabled = false;
+        membershipCheckbox.disabled = false;
+        refreshOdLive();
+      }
+    });
+    refreshOdLive();
     displaySum();
     for (const task of tasks) {
       const cell = row.insertCell();
@@ -1187,9 +1317,34 @@ function renderHomework() {
       });
       cell.append(button);
     }
+    const membershipCell = row.insertCell();
+    membershipCell.className = 'hw-membership-cell';
+    membershipCell.append(membershipCheckbox);
   }
 }
 $('hwReload').addEventListener('click', async () => {
   try { await loadHomework(); }
   catch(error) { $('hwMessage').textContent = error.message; }
 });
+
+// Refresh the estimated number when a server refill boundary passes; no extra API requests.
+setInterval(() => {
+  if (activeSection !== 'homework' || !homeworkData) return;
+  for (const refresh of homeworkOdLiveUpdaters) refresh();
+}, 15_000);
+
+// Live countdown uses the same official KST refill boundaries as the Od1 balance calculation.
+function updateOd1NextRecoveryCountdown() {
+  const target = $('od1NextRecoveryCountdown');
+  if (!target || !target.isConnected || activeSection !== 'homework') return;
+  const now = Math.floor(Date.now() / 1000);
+  const next = nextOdRecoveryAt(now);
+  const seconds = Math.max(0, next - now);
+  const hh = String(Math.floor(seconds / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const ss = String(seconds % 60).padStart(2, '0');
+  const atKst = new Date((next + 9 * 3600) * 1000).toISOString().slice(11, 16);
+  target.textContent = `오드1 다음 자연회복까지 ${hh}:${mm}:${ss} (${atKst} 예정)`;
+}
+// No network calls, D1 writes, or cron; only update the visible label.
+setInterval(updateOd1NextRecoveryCountdown, 1000);

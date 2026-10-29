@@ -18,6 +18,9 @@ db.exec(`
 `);
 db.exec(readFileSync(new URL('../migrations/0013_homework_od_amounts.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0014_homework_character_order.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0015_homework_od_persistent.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0017_homework_od_recovery.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0018_homework_od_caps_membership_default.sql',import.meta.url),'utf8'));
 const tokens={슬롱:'a'.repeat(64), MID:'b'.repeat(64)};
 for(const [nick,token] of Object.entries(tokens)) {
  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(createHash('sha256').update(token).digest('hex'), nick, Math.floor(Date.now()/1000)+10000);
@@ -60,7 +63,7 @@ assert.equal((await hit('슬롱','/api/homework/order',{characterIds:[2,3,1.3]})
 assert.equal((await hit('MID','/api/homework')).body.order.length,0);
 assert.equal((await hit('MID','/api/homework/order',{characterIds:[4]})).status,200);
 assert.deepEqual((await hit('슬롱','/api/homework')).body.order,[2,1,3]);
-// Weekly reset must never delete preference; only homework/od are deleted.
+// Weekly reset must never delete preference or permanent od balances.
 const clock=Date.now();
 await worker.scheduled({scheduledTime:clock},env);
 assert.deepEqual((await hit('슬롱','/api/homework')).body.order,[2,1,3]);

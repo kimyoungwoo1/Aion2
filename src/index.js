@@ -1,4 +1,5 @@
 import { lookupOfficialCharacter, OfficialAionLookupError } from "./aion-api.js";
+import { estimatedOd1, OD1_INPUT_MAX, OD2_INPUT_MAX } from "../public/od-recovery.js";
 const encoder = new TextEncoder();
 const SESSION_AGE = 7 * 24 * 60 * 60;
 const JSON_LIMIT = 8192;
@@ -161,7 +162,7 @@ async function lookupCharacter(_env, characterName, serverId) {
 
 // 성역별 고정 참여 명단과 주차별 가능 여부는 서로 분리한다.
 // 4·3성역의 같은 닉네임은 동일한 주차의 한 일정 레코드를 읽으므로, 다른 성역에서 다시 저장할 필요가 없다.
-// 2성역은 독립적이다. 성역별 비고도 별도로 저장한다.
+// 2성역은 독립적이다. 일정 비고는 4·3성역에서 공통 저장하고, 캐릭터별 파티 비고는 성역별로 보관한다.
 const SANCTUARIES = new Set(['4', '3', '2']);
 const STATUS_VALUES = new Set(['', 'yes', 'am', 'pm', 'no']); // 'no'는 기존 저장 데이터 호환용
 const MARK_VALUES = new Set(['','1','2','3','4','5','star','skull','moon']);
@@ -215,11 +216,89 @@ function abyssResetPeriod(timestamp = Date.now()) {
 async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = abyssResetPeriod()) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(week),
+    env.DB.prepare('DELETE FROM sanctuary_shared_schedule_notes WHERE week_start < ?').bind(week),
     env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(week),
     env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week),
-    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod),
-    env.DB.prepare('DELETE FROM homework_od_amounts WHERE week_start < ?').bind(week)
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod)
   ]);
+}
+
+// 전 캐릭터 전투력 갱신: 06:00/18:00 KST에 시작하며, 5분마다 이어서 처리합니다.
+// Cloudflare Free 플랜의 50개 외부 subrequest 제한을 위해 한 번에 18명(공식 API 검색+상세 = 36요청)만 조회합니다.
+export const POWER_REFRESH_CRON = '*/5 9,21 * * *'; // UTC 09:00=18:00 KST, UTC 21:00=익일 06:00 KST
+const POWER_REFRESH_BATCH_SIZE = 18;
+const POWER_REFRESH_CONCURRENCY = 3;
+
+function powerRefreshSlot(scheduledTime) {
+  const when = new Date(scheduledTime);
+  if (![9, 21].includes(when.getUTCHours())) return null;
+  const koreaDate = new Date(scheduledTime + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return `${koreaDate}-${when.getUTCHours() === 9 ? '18' : '06'}`;
+}
+
+async function recentPowerRefresh(env) {
+  const [last, active] = await Promise.all([
+    env.DB.prepare(`SELECT slot,finished_at,total_count,success_count,failed_count,status
+      FROM character_power_refresh_runs WHERE status IN ('complete','partial')
+      ORDER BY finished_at DESC LIMIT 1`).first(),
+    env.DB.prepare(`SELECT slot,started_at,total_count,success_count,failed_count,status
+      FROM character_power_refresh_runs WHERE status='running'
+      ORDER BY started_at DESC LIMIT 1`).first()
+  ]);
+  return { last: last || null, active: active || null };
+}
+
+// 하나의 slot에 대해 실행 중인 상태를 D1에 유지하여 재호출/재시작시 중복 수행하지 않습니다.
+export async function refreshAllCharactersOnSchedule(env, scheduledTime) {
+  const slot = powerRefreshSlot(scheduledTime);
+  if (!slot) return { skipped: true };
+  const now = Math.floor(Date.now() / 1000);
+  let run = await env.DB.prepare(`SELECT * FROM character_power_refresh_runs WHERE slot=?`).bind(slot).first();
+  if (!run) {
+    const summary = await env.DB.prepare('SELECT COUNT(*) AS total,COALESCE(MAX(id),0) AS max_id FROM characters').first();
+    await env.DB.prepare(`INSERT OR IGNORE INTO character_power_refresh_runs
+      (slot,started_at,finished_at,total_count,max_character_id,last_character_id,success_count,failed_count,status)
+      VALUES(?,?,NULL,?,?,0,0,0,'running')`)
+      .bind(slot, now, Number(summary?.total||0), Number(summary?.max_id||0)).run();
+    run = await env.DB.prepare('SELECT * FROM character_power_refresh_runs WHERE slot=?').bind(slot).first();
+  }
+  if (run.status !== 'running') return { slot, status: run.status, alreadyCompleted: true };
+
+  const rows = await env.DB.prepare(`SELECT id,character_name,server_id FROM characters
+    WHERE id > ? AND id <= ? ORDER BY id LIMIT ?`)
+    .bind(run.last_character_id,run.max_character_id,POWER_REFRESH_BATCH_SIZE).all();
+  const batch = rows.results || [];
+  let success = 0, failed = 0;
+  // 최대 3개의 캐릭터를 병렬 조회해 공식 API 요청 폭주를 방지합니다.
+  for (let i = 0; i < batch.length; i += POWER_REFRESH_CONCURRENCY) {
+    const slice = batch.slice(i, i + POWER_REFRESH_CONCURRENCY);
+    await Promise.all(slice.map(async character => {
+      try {
+        const info = await lookupCharacter(env, character.character_name, Number(character.server_id));
+        const syncedAt = Math.floor(Date.now() / 1000);
+        await env.DB.prepare(`UPDATE characters SET class_name=?,item_level=?,naddol_k=?,synced_at=? WHERE id=?`)
+          .bind(info.className,info.itemLevel,info.naddolK,syncedAt,character.id).run();
+        success++;
+      } catch (err) {
+        failed++;
+        console.warn(`Automatic character refresh failed [${slot}] id=${character.id}: ${err?.message || err}`);
+        // 실패해도 기존 캐릭터의 저장값과 개별 갱신 시각을 보존합니다.
+      }
+    }));
+  }
+  const cursor = batch.length ? batch[batch.length - 1].id : run.last_character_id;
+  // 삭제된 캐릭터 때문에 전체 건수가 달라져도 마지막 ID까지 탐색하면 종료합니다.
+  const remaining = await env.DB.prepare(`SELECT id FROM characters
+    WHERE id>? AND id<=? ORDER BY id LIMIT 1`).bind(cursor,run.max_character_id).first();
+  const done = !remaining;
+  const status = done ? (Number(run.failed_count)+failed > 0 ? 'partial' : 'complete') : 'running';
+  const finishedAt = done ? Math.floor(Date.now() / 1000) : null;
+  await env.DB.prepare(`UPDATE character_power_refresh_runs
+    SET last_character_id=?,success_count=success_count+?,failed_count=failed_count+?,
+        status=?,finished_at=? WHERE slot=? AND status='running'`)
+    .bind(cursor,success,failed,status,finishedAt,slot).run();
+  console.log(`Character refresh [${slot}] status=${status} cursor=${cursor} success=${success} failed=${failed}`);
+  return { slot,status,success,failed,finishedAt };
 }
 
 const HOMEWORK_TASKS = Object.freeze([
@@ -230,9 +309,17 @@ const HOMEWORK_TASKS = Object.freeze([
   { key: 'muspel', label: '무스펠' },
   { key: 'deltras', label: '델트라스' },
   { key: 'trial', label: '시련' },
-  { key: 'craft', label: '오드구매' }
+  { key: 'craft', label: '오드구매&제작' }
 ]);
 const HOMEWORK_KEYS = new Set(HOMEWORK_TASKS.map(x => x.key));
+function odResponse(row, now) {
+  const currentOd1 = estimatedOd1(row?.od1,row?.od1_updated_at,row?.od1_membership ?? 0,now);
+  return json({success:true,persistent:true,
+    od1:currentOd1,od1Base:row?.od1 ?? null,
+    od1UpdatedAt:row?.od1_updated_at ?? null,od1Membership:row?.od1_membership ?? 0,
+    od2:row?.od2 ?? null,odTotal:(currentOd1||0)+(row?.od2||0)});
+}
+
 // 현재 로그인 세션의 닉네임만 사용한다. 클라이언트가 보내는 닉네임은 신뢰하지 않는다.
 // 주의: 공용 접속 코드 로그인은 닉네임 자체의 소유권을 증명하지 못한다.
 async function homeworkApi(request, env, path, user, now) {
@@ -245,23 +332,25 @@ async function homeworkApi(request, env, path, user, now) {
     await cleanOldWeeklyData(env, week, abyssPeriod);
     const rows = await env.DB.prepare(`
       SELECT c.id,c.character_name,c.server_id,c.class_name,c.item_level,c.naddol_k,
-             od.od1,od.od2,h.task_key
+             od.od1,od.od2,od.od1_updated_at,od.od1_membership,h.task_key
       FROM characters c
-      LEFT JOIN homework_od_amounts od ON od.character_id=c.id AND od.week_start=?
+      LEFT JOIN homework_od_balances od ON od.character_id=c.id
       LEFT JOIN homework_progress h ON h.character_id=c.id AND h.completed=1
         AND ((h.task_key='abyss' AND h.week_start=?)
           OR (h.task_key<>'abyss' AND h.week_start=?))
       WHERE c.owner_name = ?
       ORDER BY c.character_name COLLATE NOCASE,h.task_key
       LIMIT 2000
-    `).bind(week,abyssPeriod,week,nickname).all();
+    `).bind(abyssPeriod,week,nickname).all();
     const characters = [];
     const byId = new Map();
     for (const row of rows.results) {
       if (!byId.has(row.id)) {
         const character = {id:row.id,name:row.character_name,serverId:row.server_id,
           className:row.class_name,itemLevel:row.item_level,naddolK:row.naddol_k,
-          od1:row.od1,od2:row.od2,completed:[]};
+          od1:estimatedOd1(row.od1,row.od1_updated_at,row.od1_membership ?? 0,now),
+          od1Base:row.od1,od1UpdatedAt:row.od1_updated_at,od1Membership:row.od1_membership ?? 0,
+          od2:row.od2,completed:[]};
         byId.set(row.id,character);
         characters.push(character);
       }
@@ -304,6 +393,36 @@ async function homeworkApi(request, env, path, user, now) {
     return json({success:true,characterIds:ids});
   }
 
+  if (method === 'POST' && path === '/api/homework/od/membership') {
+    const body = await readJson(request);
+    const characterId = Number(body.characterId);
+    const membership = body.membership;
+    if (!Number.isSafeInteger(characterId) || characterId < 1 ||
+        ![0,1].includes(membership)) {
+      return json({error:'멤버십 설정을 확인해 주세요.'},400);
+    }
+    const owner = await env.DB.prepare('SELECT id FROM characters WHERE id=? AND owner_name=?')
+      .bind(characterId,nickname).first();
+    if (!owner) return json({error:'현재 로그인 닉네임의 캐릭터만 수정할 수 있습니다.'},403);
+    const previous = await env.DB.prepare(
+      'SELECT od1,od1_updated_at,od1_membership FROM homework_od_balances WHERE character_id=?'
+    ).bind(characterId).first();
+    // Accrue any recovery under the previous subscription before starting the new rate.
+    const current = previous ? estimatedOd1(previous.od1,previous.od1_updated_at,previous.od1_membership ?? 0,now) : null;
+    const newBaseline = (current === null || membership === null) ? null : now;
+    await env.DB.prepare(`INSERT INTO homework_od_balances
+      (character_id,od1,od1_updated_at,od1_membership,updated_at)
+      VALUES(?,?,?,?,?)
+      ON CONFLICT(character_id) DO UPDATE SET
+      od1=excluded.od1,od1_updated_at=excluded.od1_updated_at,
+      od1_membership=excluded.od1_membership,updated_at=excluded.updated_at`)
+      .bind(characterId,current,newBaseline,membership,now).run();
+    const updated = await env.DB.prepare(
+      'SELECT od1,od2,od1_updated_at,od1_membership FROM homework_od_balances WHERE character_id=?'
+    ).bind(characterId).first();
+    return odResponse(updated,now);
+  }
+
   if (method === 'POST' && path === '/api/homework/od') {
     const body = await readJson(request);
     const characterId = Number(body.characterId);
@@ -311,24 +430,34 @@ async function homeworkApi(request, env, path, user, now) {
     const value = body.value;
     if (!Number.isSafeInteger(characterId) || characterId < 1 ||
         !['od1','od2'].includes(field) ||
-        (value !== null && (!Number.isSafeInteger(value) || value < 0 || value > 999999999))) {
+        (value !== null && (!Number.isSafeInteger(value) || value < 0))) {
       return json({error:'오드 수량은 0 이상의 정수로 입력해 주세요.'},400);
     }
-    const week = currentWeekStart();
-    await cleanOldWeeklyData(env,week,abyssResetPeriod());
-    // characterId 변조를 통한 다른 닉네임의 캐릭터 수정 방지.
+    const maxValue = field === 'od1' ? OD1_INPUT_MAX : OD2_INPUT_MAX;
+    if (value !== null && value > maxValue) {
+      return json({error:`${field === 'od1' ? '오드1' : '오드2'}은(는) 최대 ${maxValue.toLocaleString('ko-KR')}까지만 입력할 수 있습니다.`},400);
+    }
     const owner = await env.DB.prepare('SELECT id FROM characters WHERE id=? AND owner_name=?')
       .bind(characterId,nickname).first();
     if (!owner) return json({error:'현재 로그인 닉네임의 캐릭터만 수정할 수 있습니다.'},403);
-    // field는 검증된 값만 SQL 문자열에 넣으며, 다른 입력 필드는 덮어쓰지 않는다.
-    await env.DB.prepare(`INSERT INTO homework_od_amounts(week_start,character_id,${field},updated_at)
-        VALUES(?,?,?,?) ON CONFLICT(week_start,character_id)
-        DO UPDATE SET ${field}=excluded.${field},updated_at=excluded.updated_at`)
-      .bind(week,characterId,value,now).run();
-    const updated = await env.DB.prepare('SELECT od1,od2 FROM homework_od_amounts WHERE week_start=? AND character_id=?')
-      .bind(week,characterId).first();
-    return json({success:true,weekStart:week,od1:updated.od1,od2:updated.od2,
-      odTotal:(updated.od1||0)+(updated.od2||0)});
+    if (field === 'od1') {
+      // Manual input is a fresh snapshot, so old recovery must not be replayed.
+      await env.DB.prepare(`INSERT INTO homework_od_balances(character_id,od1,od1_updated_at,od1_membership,updated_at)
+        VALUES(?,?,?,0,?) ON CONFLICT(character_id) DO UPDATE SET
+          od1=excluded.od1,od1_updated_at=excluded.od1_updated_at,
+          od1_membership=COALESCE(homework_od_balances.od1_membership,0),updated_at=excluded.updated_at`)
+        .bind(characterId,value,value === null ? null : now,now).run();
+    } else {
+      // Recharge od2 is manual-only, and editing it never resets od1's recovery timer.
+      await env.DB.prepare(`INSERT INTO homework_od_balances(character_id,od2,updated_at)
+        VALUES(?,?,?) ON CONFLICT(character_id) DO UPDATE SET
+          od2=excluded.od2,updated_at=excluded.updated_at`)
+        .bind(characterId,value,now).run();
+    }
+    const updated = await env.DB.prepare(
+      'SELECT od1,od2,od1_updated_at,od1_membership FROM homework_od_balances WHERE character_id=?'
+    ).bind(characterId).first();
+    return odResponse(updated,now);
   }
 
   if (method === 'POST' && path === '/api/homework') {
@@ -428,13 +557,13 @@ async function api(request, env, path) {
       // 공통 닉네임은 동일한 shared 레코드를 조회한다.
       rows = await env.DB.prepare(
         'SELECT m.nickname, COALESCE(shared.statuses, ?) AS statuses, ' +
-        "COALESCE(local.note, '') AS note, COALESCE(shared.updated_by, '') AS updated_by, " +
-        'COALESCE(shared.updated_at, 0) AS updated_at ' +
+        "COALESCE(shared_note.note, '') AS note, COALESCE(shared.updated_by, shared_note.updated_by, '') AS updated_by, " +
+        'COALESCE(shared.updated_at, shared_note.updated_at, 0) AS updated_at ' +
         'FROM sanctuary_members m ' +
         'LEFT JOIN sanctuary_shared_availability shared ' +
         'ON shared.week_start = ? AND shared.nickname = m.nickname ' +
-        'LEFT JOIN sanctuary_schedules local ' +
-        'ON local.sanctuary = m.sanctuary AND local.week_start = ? AND local.nickname = m.nickname ' +
+        'LEFT JOIN sanctuary_shared_schedule_notes shared_note ' +
+        'ON shared_note.week_start = ? AND shared_note.nickname = m.nickname ' +
         'WHERE m.sanctuary = ? ORDER BY m.nickname COLLATE NOCASE LIMIT 300'
       ).bind(EMPTY_WEEK, weekStart, weekStart, sanctuary).all();
     } else {
@@ -644,14 +773,15 @@ async function api(request, env, path) {
         'VALUES (?, ?, ?, ?, ?) ON CONFLICT(week_start, nickname) DO UPDATE SET ' +
         'statuses = excluded.statuses, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
       ).bind(weekStart, user.nickname, text, user.nickname, now);
-      const noteSave = empty
-        ? env.DB.prepare('DELETE FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?')
-          .bind(sanctuary, weekStart, user.nickname)
+      // AION2_OD_COUNTDOWN_SHARED_NOTES_V1: 4/3 schedule notes are shared per week+nickname.
+      const noteSave = note === ''
+        ? env.DB.prepare('DELETE FROM sanctuary_shared_schedule_notes WHERE week_start = ? AND nickname = ?')
+          .bind(weekStart, user.nickname)
         : env.DB.prepare(
-          'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
-          'note = excluded.note, statuses = excluded.statuses, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
-        ).bind(sanctuary, weekStart, user.nickname, text, note, user.nickname, now);
+          'INSERT INTO sanctuary_shared_schedule_notes (week_start, nickname, note, updated_by, updated_at) ' +
+          'VALUES (?, ?, ?, ?, ?) ON CONFLICT(week_start, nickname) DO UPDATE SET ' +
+          'note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at'
+        ).bind(weekStart, user.nickname, note, user.nickname, now);
       await env.DB.batch([sharedSave, noteSave]);
       return json({ success: true, synced: true, cleared: empty });
     }
@@ -676,7 +806,7 @@ async function api(request, env, path) {
       'notes, updated_by, updated_at, synced_at FROM characters ' +
       'ORDER BY owner_name, server_id, character_name LIMIT 1000'
     ).all();
-    return json({ characters: result.results });
+    return json({ characters: result.results, bulkRefresh: await recentPowerRefresh(env) });
   }
 
   if (method === 'POST' && path === '/api/characters') {
@@ -735,10 +865,15 @@ async function api(request, env, path) {
 }
 
 export default {
-  // Cloudflare Cron: UTC 화요일 20:00 = 한국시간 수요일 05:00
+  // UTC 화요일 20:00=수요일 05:00 KST (주간), UTC 12:00 수/토=21:00 KST (어비스)
+  // UTC 09:00~09:55=18:00~18:55 KST, UTC 21:00~21:55=06:00~06:55 KST (캐릭터 갱신)
   async scheduled(controller, env) {
     if (!env.DB) throw new Error('D1 DB 바인딩이 없습니다.');
-    await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime), abyssResetPeriod(controller.scheduledTime));
+    if (controller.cron === POWER_REFRESH_CRON) {
+      await refreshAllCharactersOnSchedule(env, controller.scheduledTime);
+    } else {
+      await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime), abyssResetPeriod(controller.scheduledTime));
+    }
   },
   async fetch(request, env) {
     const path = new URL(request.url).pathname;

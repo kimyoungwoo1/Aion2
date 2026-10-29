@@ -540,6 +540,62 @@ async function api(request, env, path) {
     return json({ servers: AION2_SERVERS });
   }
 
+  // AION2_COMPACT_EDITABLE_SERVER_MATCHES_V1
+  // 21 Korean server matchings are site data, not a code deployment.
+  // Existing shared-code login is reused: every authenticated nickname can edit.
+  if (path === '/api/content-schedule/matches') {
+    if (method === 'GET') {
+      const record = await env.DB.prepare(
+        'SELECT payload_json,updated_by,updated_at,revision FROM content_schedule_server_matches WHERE id=1'
+      ).first();
+      return json(record ? {
+        config: JSON.parse(record.payload_json), updatedBy: record.updated_by,
+        updatedAt: record.updated_at, revision: record.revision
+      } : {config:null,revision:0});
+    }
+    if (method !== 'POST') return json({error:'허용되지 않은 요청입니다.'},405);
+    const body = await readJson(request);
+    const dateValid = str => {
+      if (typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+      const date = new Date(str + 'T00:00:00Z');
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === str;
+    };
+    const {startDate,endDate,rows} = body;
+    const revision = body.revision;
+    if (!dateValid(startDate) || !dateValid(endDate) || startDate > endDate ||
+        !Array.isArray(rows) || rows.length !== 21 ||
+        !Number.isSafeInteger(revision) || revision < 0) {
+      return json({error:'적용 날짜, 21개 서버 매칭 또는 수정 버전을 확인하세요.'},400);
+    }
+    const seen = new Set();
+    const normalized = [];
+    for (const item of rows) {
+      const num = item && item.number;
+      const group = item && item.group;
+      const west = item && typeof item.west === 'string' ? item.west.trim() : '';
+      const east = item && typeof item.east === 'string' ? item.east.trim() : '';
+      if (!Number.isSafeInteger(num) || num < 1 || num > 21 || seen.has(num) ||
+          group !== ((num - 1) % 3) + 1 || !validLabel(west,40) || !validLabel(east,40)) {
+        return json({error:'매칭 번호는 1~21을 한 번씩, 올바른 그룹과 서부·동부 서버명을 입력하세요.'},400);
+      }
+      seen.add(num);
+      normalized.push({number:num,group,west,east});
+    }
+    normalized.sort((a,b) => a.number-b.number);
+    const config = JSON.stringify({startDate,endDate,rows:normalized});
+    const updatedAt = Math.floor(Date.now()/1000);
+    const saved = await env.DB.prepare(`
+      INSERT INTO content_schedule_server_matches(id,payload_json,updated_by,updated_at,revision)
+      VALUES (1,?,?,?,1)
+      ON CONFLICT(id) DO UPDATE SET
+        payload_json=excluded.payload_json,updated_by=excluded.updated_by,
+        updated_at=excluded.updated_at,revision=content_schedule_server_matches.revision+1
+      WHERE content_schedule_server_matches.revision=?
+    `).bind(config,user.nickname,updatedAt,revision).run();
+    if (!saved.meta.changes) return json({error:'다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 수정해 주세요.'},409);
+    return json({success:true,config:JSON.parse(config),updatedAt,updatedBy:user.nickname,revision:revision+1});
+  }
+
   if (path.startsWith('/api/homework')) return homeworkApi(request, env, path, user, now);
 
 

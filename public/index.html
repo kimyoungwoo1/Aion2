@@ -510,8 +510,11 @@
           <thead><tr><th scope="col">콘텐츠</th><th scope="col">요일</th><th scope="col">1그룹</th><th scope="col">2그룹</th><th scope="col">3그룹</th></tr></thead>
           <tbody><tr><td><span class="cs-event cs-artifact"><span aria-hidden="true">◈</span> 아티쟁</span></td><td>수 · 토</td><td>21:20</td><td>21:50</td><td>22:20</td></tr><tr><td><span class="cs-event cs-boss"><span aria-hidden="true">♙</span> 어비스 보스</span></td><td>수 · 토</td><td>21:45</td><td>22:15</td><td>22:45</td></tr><tr><td><span class="cs-event cs-nahma"><span aria-hidden="true">♛</span> 나흐마</span></td><td>금 · 일</td><td>22:00</td><td>22:30</td><td>23:00</td></tr></tbody>
         </table></div>
-        <div class="cs-section-heading cs-matches-head"><h2>서버 매칭표</h2><p>적용 기간 2026.10.21 ~ 2026.11.11</p></div>
-        <div class="cs-server-grid"><div class="cs-server-card">
+        <!-- AION2_COMPACT_EDITABLE_SERVER_MATCHES_V1 -->
+        <details class="cs-server-details" id="csServerDetails">
+          <summary><span class="cs-summary-title">서버 매칭표 펼치기</span><span class="cs-summary-period" id="csServerPeriod">적용 기간 2026.10.21 ~ 2026.11.11</span></summary>
+          <div class="cs-server-panel">
+        <div class="cs-server-grid" id="csServerGrid"><div class="cs-server-card">
       <h3 class="cs-group-1">1그룹</h3>
       <table><thead><tr><th>번호</th><th>서부</th><th>동부</th></tr></thead><tbody><tr><td class="cs-server-num">1</td><td>시엘</td><td>이스라펠</td></tr><tr><td class="cs-server-num">4</td><td>트리니엘</td><td>네몬</td></tr><tr><td class="cs-server-num">7</td><td>아리엘</td><td>마르쿠탄</td></tr><tr><td class="cs-server-num">10</td><td>히타니에</td><td>루터스</td></tr><tr><td class="cs-server-num">13</td><td>타하바타</td><td>코치룽</td></tr><tr><td class="cs-server-num">16</td><td>카샤카</td><td>브리트라</td></tr><tr><td class="cs-server-num">19</td><td>이스타르</td><td>지켈</td></tr></tbody></table>
     </div><div class="cs-server-card">
@@ -521,7 +524,28 @@
       <h3 class="cs-group-3">3그룹</h3>
       <table><thead><tr><th>번호</th><th>서부</th><th>동부</th></tr></thead><tbody><tr><td class="cs-server-num">3</td><td>바이젤</td><td>아스펠</td></tr><tr><td class="cs-server-num">6</td><td>유스티엘</td><td>바카르마</td></tr><tr><td class="cs-server-num">9</td><td>프레기온</td><td>이스할겐</td></tr><tr><td class="cs-server-num">12</td><td>하달</td><td>파프니르</td></tr><tr><td class="cs-server-num">15</td><td>다미누</td><td>오다르</td></tr><tr><td class="cs-server-num">18</td><td>챈카룽</td><td>인드나흐</td></tr><tr><td class="cs-server-num">21</td><td>포에타</td><td>콰이링</td></tr></tbody></table>
     </div></div>
-        <p class="cs-reference-note">첨부 이미지 기준 일정표입니다. 종료 또는 변경된 콘텐츠 일정은 별도 업데이트가 필요합니다.</p>
+        
+          <div class="cs-edit-actions">
+            <button type="button" class="secondary small" id="csEditMatches">서버 매칭 수정</button>
+            <span class="cs-edit-meta" id="csEditMeta">이미지 기준 매칭표</span>
+          </div>
+          <div class="cs-match-editor" id="csMatchEditor" hidden>
+            <p>적용 기간과 서버를 수정하면 DB에 저장돼요. 21줄을 <strong>번호 / 서부 / 동부</strong> 순으로 입력하세요. 엑셀에서 복사한 탭 구분 표도 붙여넣을 수 있어요.</p>
+            <div class="cs-period-fields">
+              <label>시작일 <input type="date" id="csStartDate" required></label>
+              <label>종료일 <input type="date" id="csEndDate" required></label>
+            </div>
+            <label for="csServerRows">서버 매칭 (21줄)</label>
+            <textarea id="csServerRows" rows="11" spellcheck="false" placeholder="1&#9;시엘&#9;이스라펠"></textarea>
+            <div class="cs-edit-actions">
+              <button type="button" class="primary small" id="csSaveMatches">매칭표 저장</button>
+              <button type="button" class="secondary small" id="csCancelMatches">취소</button>
+            </div>
+            <p class="cs-edit-status" id="csMatchStatus" role="status"></p>
+          </div>
+          </div>
+        </details>
+        <p class="cs-reference-note">일정은 첨부 이미지 기준이며, 서버 매칭 정보는 이 사이트에서 직접 수정할 수 있습니다.</p>
       </section>
       <section id="homeworkPanel" hidden>
         <div class="sectionhead" style="flex-wrap:wrap;gap:14px">
@@ -547,5 +571,6 @@
     </section>
   </main>
   <script type="module" src="/app.js?v=aion2-od-membership-check-20261029"></script>
+  <script type="module" src="/content-schedule-manage.js"></script>
 </body>
 </html>

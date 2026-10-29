@@ -267,12 +267,25 @@ function currentWeekStart(timestamp = Date.now()) {
   return korea.toISOString().slice(0, 10);
 }
 
-// 이전 주의 데이터는 기록하지 않는다. 고정 명단, 파티 편성 및 캐릭터는 유지한다.
-async function cleanOldWeeklyData(env, week = currentWeekStart()) {
+// 어비스회랑은 수요일/토요일 오후 9시(KST)에만 초기화한다.
+// KST 21:00은 UTC 12:00이므로 UTC 시간에서 12시간을 뺀 날짜로
+// 마지막 수요일 또는 토요일의 리셋 기간 식별자(yyyy-mm-dd)를 계산한다.
+function abyssResetPeriod(timestamp = Date.now()) {
+  const effective = new Date(timestamp - 12 * 60 * 60 * 1000);
+  const day = effective.getUTCDay();
+  const back = [1, 2, 3, 0, 1, 2, 0][day];
+  effective.setUTCDate(effective.getUTCDate() - back);
+  return effective.toISOString().slice(0, 10);
+}
+
+// 조회/저장에서도 이전 기간 데이터를 정리해 Cron 지연 중에도 정확히 초기화한다.
+// 고정 명단, 캐릭터, 포스 및 파티 편성은 삭제하지 않는다.
+async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = abyssResetPeriod()) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(week),
     env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(week),
-    env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week)
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week),
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod)
   ]);
 }
 
@@ -295,18 +308,19 @@ async function homeworkApi(request, env, path, user, now) {
 
   if (method === 'GET' && path === '/api/homework') {
     const week = currentWeekStart();
-    await cleanOldWeeklyData(env, week);
+    const abyssPeriod = abyssResetPeriod();
+    await cleanOldWeeklyData(env, week, abyssPeriod);
     const rows = await env.DB.prepare(`
       SELECT c.id,c.character_name,c.server_id,c.class_name,c.item_level,c.naddol_k,
              h.task_key
       FROM characters c
       LEFT JOIN homework_progress h ON h.character_id=c.id AND h.completed=1
-        AND ((h.task_key='abyss' AND h.week_start='1970-01-01')
+        AND ((h.task_key='abyss' AND h.week_start=?)
           OR (h.task_key<>'abyss' AND h.week_start=?))
       WHERE c.owner_name = ?
       ORDER BY c.character_name COLLATE NOCASE,h.task_key
       LIMIT 2000
-    `).bind(week,nickname).all();
+    `).bind(abyssPeriod,week,nickname).all();
     const characters = [];
     const byId = new Map();
     for (const row of rows.results) {
@@ -327,8 +341,9 @@ async function homeworkApi(request, env, path, user, now) {
     if (!Number.isSafeInteger(characterId) || characterId <= 0 || !HOMEWORK_KEYS.has(body.taskKey) ||
         typeof body.completed !== 'boolean') return json({error:'숙제 입력 값을 확인하세요.'},400);
     const week = currentWeekStart();
-    await cleanOldWeeklyData(env,week);
-    const recordWeek = body.taskKey === 'abyss' ? '1970-01-01' : week;
+    const abyssPeriod = abyssResetPeriod();
+    await cleanOldWeeklyData(env, week, abyssPeriod);
+    const recordWeek = body.taskKey === 'abyss' ? abyssPeriod : week;
     // 서버 측 소유자 검증: 남의 characterId로 요청을 조작해도 변경되지 않는다.
     const character = await env.DB.prepare('SELECT id FROM characters WHERE id=? AND owner_name=?')
       .bind(characterId,nickname).first();
@@ -450,7 +465,7 @@ async function api(request, env, path) {
     if (!SANCTUARIES.has(sanctuary)) return json({ error: '성역을 확인해 주세요.' }, 400);
     const members = await env.DB.prepare(`
       WITH roster AS (
-        SELECT m.nickname, p.party_number, p.slot_number, p.marker AS member_marker,
+        SELECT m.nickname, p.party_number, p.slot_number, COALESCE(mm.marker, '') AS member_marker,
           COALESCE(mc.character_id, (
             SELECT c2.id FROM characters c2
             WHERE c2.character_name = m.nickname COLLATE NOCASE
@@ -461,6 +476,8 @@ async function api(request, env, path) {
         FROM sanctuary_members m
         LEFT JOIN sanctuary_party_slots p
           ON p.sanctuary = m.sanctuary AND p.nickname = m.nickname
+        LEFT JOIN sanctuary_member_markers mm
+          ON mm.sanctuary = m.sanctuary AND mm.nickname = m.nickname
         LEFT JOIN sanctuary_member_characters mc
           ON mc.sanctuary = m.sanctuary AND mc.nickname = m.nickname
         WHERE m.sanctuary = ?
@@ -515,6 +532,64 @@ async function api(request, env, path) {
     return json({ success: true });
   }
 
+  // 참여 캐릭터의 파티 위치와 징표를 한 번에 저장한다.
+  // 두 변경은 D1 batch 트랜잭션으로 묶어 한쪽만 반영되지 않도록 한다.
+  if (path === '/api/sanctuary/roster/assignment' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const nickname = typeof body.nickname === 'string' ? body.nickname.trim() : '';
+    const marker = body.marker;
+    if (!SANCTUARIES.has(sanctuary) || !validLabel(nickname, 30) ||
+        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
+      return json({ error: '성역, 참여자 또는 징표를 확인해 주세요.' }, 400);
+    }
+    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
+      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
+    }
+
+    const unassigned = body.partyNumber === null && body.slotNumber === null;
+    const partyNumber = Number(body.partyNumber);
+    const slotNumber = Number(body.slotNumber);
+    if (!unassigned && (!Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
+        !Number.isSafeInteger(slotNumber) || slotNumber < 1 || slotNumber > 5)) {
+      return json({ error: '파티 위치는 1~4포스, 각 포스 1~2파티, 1~5번 자리 중 선택하세요.' }, 400);
+    }
+    if (!unassigned) {
+      const occupied = await env.DB.prepare(
+        'SELECT nickname FROM sanctuary_party_slots WHERE sanctuary = ? AND party_number = ? ' +
+        'AND slot_number = ? AND nickname <> ?'
+      ).bind(sanctuary, partyNumber, slotNumber, nickname).first();
+      if (occupied) return json({ error: `${occupied.nickname} 님이 이미 선택한 자리입니다.` }, 409);
+    }
+
+    const statements = [];
+    if (unassigned) {
+      statements.push(env.DB.prepare(
+        'DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?'
+      ).bind(sanctuary, nickname));
+    } else {
+      statements.push(env.DB.prepare(
+        'INSERT INTO sanctuary_party_slots(sanctuary,nickname,party_number,slot_number,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+        'party_number=excluded.party_number,slot_number=excluded.slot_number,' +
+        'updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary, nickname, partyNumber, slotNumber, user.nickname, now));
+    }
+    if (!marker) {
+      statements.push(env.DB.prepare(
+        'DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?'
+      ).bind(sanctuary, nickname));
+    } else {
+      statements.push(env.DB.prepare(
+        'INSERT INTO sanctuary_member_markers(sanctuary,nickname,marker,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+        'marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary, nickname, marker, user.nickname, now));
+    }
+    await env.DB.batch(statements);
+    return json({ success: true });
+  }
+
   if (path === '/api/sanctuary/roster/party' && method === 'POST') {
     const body = await readJson(request);
     const { sanctuary } = body;
@@ -551,32 +626,30 @@ async function api(request, env, path) {
     return json({ success: true });
   }
 
-  // 파티별 비고와 파티 대표 징표를 저장한다. (성역·파티별 영구 보관)
+  // 파티에는 비고만 저장한다. 징표는 참여자별로 따로 관리한다.
   if (path === '/api/sanctuary/roster/party-details' && method === 'POST') {
     const body = await readJson(request);
     const sanctuary = body.sanctuary;
     const partyNumber = Number(body.partyNumber);
     const note = typeof body.note === 'string' ? body.note.trim() : null;
-    const marker = body.marker;
     if (!SANCTUARIES.has(sanctuary) || !Number.isSafeInteger(partyNumber) || partyNumber < 1 || partyNumber > 8 ||
-        note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note) ||
-        typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
-      return json({ error: '파티 비고 또는 징표 입력을 확인해 주세요.' }, 400);
+        note === null || note.length > 150 || /[\u0000-\u001f\u007f]/.test(note)) {
+      return json({ error: '파티 비고를 확인해 주세요.' }, 400);
     }
-    if (!note && !marker) {
+    if (!note) {
       await env.DB.prepare('DELETE FROM sanctuary_party_details WHERE sanctuary = ? AND party_number = ?')
         .bind(sanctuary, partyNumber).run();
     } else {
       await env.DB.prepare(
         'INSERT INTO sanctuary_party_details (sanctuary, party_number, note, marker, updated_by, updated_at) ' +
         'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary,party_number) DO UPDATE SET ' +
-        'note=excluded.note,marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
-      ).bind(sanctuary, partyNumber, note, marker, user.nickname, now).run();
+        "note=excluded.note,marker='',updated_by=excluded.updated_by,updated_at=excluded.updated_at"
+      ).bind(sanctuary, partyNumber, note, '', user.nickname, now).run();
     }
     return json({ success: true });
   }
 
-  // 파티에 배정된 사람마다 개별 징표를 추가할 수 있다.
+  // 고정 참여자별 징표: 파티에 배정되기 전에도 저장 가능하며, 이동/미배정 시에도 유지.
   if (path === '/api/sanctuary/roster/member-marker' && method === 'POST') {
     const body = await readJson(request);
     const sanctuary = body.sanctuary;
@@ -586,10 +659,20 @@ async function api(request, env, path) {
         typeof marker !== 'string' || !MARK_VALUES.has(marker)) {
       return json({ error: '참여자와 징표를 확인해 주세요.' }, 400);
     }
-    const result = await env.DB.prepare(
-      'UPDATE sanctuary_party_slots SET marker = ?, updated_by = ?, updated_at = ? WHERE sanctuary = ? AND nickname = ?'
-    ).bind(marker, user.nickname, now, sanctuary, nickname).run();
-    return result.meta.changes ? json({success:true}) : json({error:'파티에 배정된 참여자가 아닙니다.'},404);
+    if (!(await sanctuaryMember(env, sanctuary, nickname))) {
+      return json({ error: '고정 참여자 명단에 없는 사람입니다.' }, 404);
+    }
+    if (!marker) {
+      await env.DB.prepare('DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?')
+        .bind(sanctuary,nickname).run();
+    } else {
+      await env.DB.prepare(
+        'INSERT INTO sanctuary_member_markers(sanctuary,nickname,marker,updated_by,updated_at) ' +
+        'VALUES (?,?,?,?,?) ON CONFLICT(sanctuary,nickname) DO UPDATE SET ' +
+        'marker=excluded.marker,updated_by=excluded.updated_by,updated_at=excluded.updated_at'
+      ).bind(sanctuary,nickname,marker,user.nickname,now).run();
+    }
+    return json({success:true});
   }
 
   // 고정 명단은 주차별 일정과 무관하게 유지된다. 닉네임 여러 개를 한 번에 추가할 수 있다.
@@ -623,6 +706,7 @@ async function api(request, env, path) {
     }
     const results = await env.DB.batch([
       env.DB.prepare('DELETE FROM sanctuary_party_slots WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
+      env.DB.prepare('DELETE FROM sanctuary_member_markers WHERE sanctuary = ? AND nickname = ?').bind(sanctuary,nickname),
       env.DB.prepare('DELETE FROM sanctuary_member_characters WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname),
       env.DB.prepare('DELETE FROM sanctuary_members WHERE sanctuary = ? AND nickname = ?').bind(sanctuary, nickname)
     ]);
@@ -751,7 +835,7 @@ export default {
   // Cloudflare Cron: UTC 화요일 20:00 = 한국시간 수요일 05:00
   async scheduled(controller, env) {
     if (!env.DB) throw new Error('D1 DB 바인딩이 없습니다.');
-    await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime));
+    await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime), abyssResetPeriod(controller.scheduledTime));
   },
   async fetch(request, env) {
     const path = new URL(request.url).pathname;

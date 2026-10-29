@@ -244,7 +244,7 @@ $('refresh').addEventListener('click', () => loadCharacters().catch(error => {
 const sanctuaryNames = { '4': '4성역 · 델트라스', '3': '3성역 · 무스펠', '2': '2성역 · 침식' };
 const weekDayNames = ['수', '목', '금', '토', '일', '월', '화'];
 const availabilityLabels = { '': '미입력', am: '오전 가능', pm: '오후 가능', yes: '가능', no: '불가능' };
-const availabilityInputOptions = [['', '미입력'], ['am', '오전 가능'], ['pm', '오후 가능'], ['yes', '가능']];
+const availabilityInputOptions = [['', '미입력'], ['am', '오전 가능'], ['pm', '오후 가능'], ['yes', '가능'], ['no', '불가능']];
 let activeSection = 'characters';
 let activeWeek = wednesdayFor(seoulResetDay());
 let sanctuaryRows = [];
@@ -298,6 +298,7 @@ function createAvailabilityEditor() {
     select.id = `avail-${idx}`;
     select.name = `day-${idx}`;
     for (const [value, text] of availabilityInputOptions) select.add(new Option(text, value));
+    select.value = ''; // 아무 입력도 없는 주간 일정의 기본값은 반드시 미입력
     wrap.append(label, select);
     container.append(wrap);
   });
@@ -354,8 +355,6 @@ function renderSanctuary() {
   const mineStatuses = mine?.statuses || Array(7).fill('');
   mineStatuses.forEach((status, index) => {
     const select = $(`avail-${index}`);
-    // 기존 '불가능' 저장값은 소실되지 않도록, 해당 사용자에게만 이전 선택지를 표시.
-    if (status === 'no') select.add(new Option('불가능 (기존 값)', 'no'));
     select.value = status;
   });
   $('scheduleNote').value = mine?.note || '';
@@ -642,29 +641,29 @@ function renderPartyRoster() {
   container.replaceChildren();
   if (!rows.length) container.textContent = '고정 참여자가 없습니다. 참여 일정 탭에서 먼저 고정 참여자를 등록해 주세요.';
   const taken = new Set(rows.map(partyPlace).filter(Boolean));
+  const heading = document.createElement('div');
+  heading.className = 'roster-compact-header';
+  for (const text of ['참여자', '캐릭터 선택', '파티 위치 · 징표 함께 배정']) {
+    const item = document.createElement('span'); item.textContent = text; heading.append(item);
+  }
+  if (rows.length) container.append(heading);
 
   for (const member of rows) {
     const wrap = document.createElement('div');
-    wrap.className = 'roster-member';
-    const head = document.createElement('div');
-    head.className = 'roster-person';
+    wrap.className = 'roster-compact-row';
+    const identity = document.createElement('div');
+    identity.className = 'roster-compact-identity';
     const name = document.createElement('strong');
     name.textContent = member.nickname;
-    const label = document.createElement('span');
-    label.className = 'tag';
-    label.textContent = member.party_number ? `${partyLabel(member.party_number)} · ${member.slot_number}번` : '미배정';
-    head.append(name, label);
-    const detail = document.createElement('p');
-    detail.className = 'roster-detail';
-    detail.textContent = memberInfo(member);
-    const selects = document.createElement('div');
-    selects.className = 'roster-selects';
-    const charWrap = document.createElement('div');
-    const charLabel = document.createElement('label');
-    charLabel.textContent = '캐릭터 연결';
+    const detail = document.createElement('small');
+    detail.textContent = member.character_id
+      ? `${member.class_name || '-'} · ${Number(member.item_level || 0).toLocaleString('ko-KR')} · ${Number(member.naddol_k || 0).toLocaleString('ko-KR', {maximumFractionDigits:1})}k`
+      : '캐릭터 연결 필요';
+    identity.append(name, detail);
+
     const charSelect = document.createElement('select');
-    charSelect.setAttribute('aria-label', member.nickname + ' 캐릭터 연결');
-    charSelect.add(new Option('미선택 / 이름 일치 시 자동 연결', ''));
+    charSelect.setAttribute('aria-label', member.nickname + ' 캐릭터 선택');
+    charSelect.add(new Option('캐릭터 자동 연결', ''));
     sanctuaryPartyCharacters.forEach(c => {
       const serverName = serverById.get(Number(c.server_id))?.name || '서버 확인 필요';
       charSelect.add(new Option(`${c.character_name} · ${serverName} (${c.class_name})`, String(c.id)));
@@ -675,29 +674,39 @@ function renderPartyRoster() {
       await updatePartySetting('/api/sanctuary/roster/character',
         {sanctuary:activeSection,nickname:member.nickname,characterId:chosen}, charSelect);
     });
-    charWrap.append(charLabel,charSelect);
-    const partyWrap = document.createElement('div');
-    const partyFieldLabel = document.createElement('label');
-    partyFieldLabel.textContent = '파티 배정';
+
+    // 파티 위치와 징표를 한 번의 저장 요청으로 적용한다.
+    // 서로 다른 onchange 요청이 목록을 다시 그리면서 선택값을 잃는 문제를 방지한다.
+    const assignmentWrap = document.createElement('div');
+    assignmentWrap.className = 'roster-assignment';
     const partySelect = document.createElement('select');
-    partySelect.setAttribute('aria-label', member.nickname + ' 파티 배정');
+    partySelect.setAttribute('aria-label', member.nickname + ' 파티 위치');
     partySelect.add(new Option('미배정', ''));
-    for (let party=1;party<=TOTAL_PARTIES;party++) {
-      for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
+    for (let party = 1; party <= TOTAL_PARTIES; party++) {
+      for (let slot = 1; slot <= PARTY_CAPACITY; slot++) {
         const value = `${party}:${slot}`;
         if (taken.has(value) && partyPlace(member) !== value) continue;
         partySelect.add(new Option(`${partyLabel(party)} · ${slot}번`, value));
       }
     }
     partySelect.value = partyPlace(member);
-    partySelect.addEventListener('change', async () => {
-      const [p,slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null,null];
-      await updatePartySetting('/api/sanctuary/roster/party',
-        {sanctuary:activeSection,nickname:member.nickname,partyNumber:p,slotNumber:slot},partySelect);
+    const markSelect = document.createElement('select');
+    markSelect.setAttribute('aria-label', member.nickname + ' 징표');
+    appendMarkOptions(markSelect);
+    markSelect.value = member.member_marker || '';
+    const saveAssignment = document.createElement('button');
+    saveAssignment.type = 'button';
+    saveAssignment.className = 'secondary small assignment-save';
+    saveAssignment.textContent = '배정 저장';
+    saveAssignment.setAttribute('aria-label', member.nickname + ' 파티 및 징표 함께 저장');
+    saveAssignment.addEventListener('click', async () => {
+      const [p, slot] = partySelect.value ? partySelect.value.split(':').map(Number) : [null, null];
+      await updatePartySetting('/api/sanctuary/roster/assignment',
+        {sanctuary:activeSection, nickname:member.nickname,
+         partyNumber:p, slotNumber:slot, marker:markSelect.value}, saveAssignment);
     });
-    partyWrap.append(partyFieldLabel,partySelect);
-    selects.append(charWrap,partyWrap);
-    wrap.append(head,detail,selects);
+    assignmentWrap.append(partySelect, markSelect, saveAssignment);
+    wrap.append(identity, charSelect, assignmentWrap);
     container.append(wrap);
   }
 
@@ -722,16 +731,8 @@ function renderPartyRoster() {
       title.textContent = `${withinForce}파티 · ${members.length}/${PARTY_CAPACITY}명`;
       card.append(title);
       const existingDetails = sanctuaryPartyDetails.find(p => Number(p.party_number) === party) || {};
-      if (existingDetails.marker) title.textContent = `${markText(existingDetails.marker)}  ${title.textContent}`;
       const partyFields = document.createElement('div');
       partyFields.className = 'party-edit-fields';
-      const partyMarkWrap = document.createElement('label');
-      partyMarkWrap.textContent = '파티 징표';
-      const partyMark = document.createElement('select');
-      partyMark.setAttribute('aria-label', `${partyLabel(party)} 징표`);
-      appendMarkOptions(partyMark);
-      partyMark.value = existingDetails.marker || '';
-      partyMarkWrap.append(partyMark);
       const partyNoteWrap = document.createElement('label');
       partyNoteWrap.textContent = '파티 비고';
       const partyNote = document.createElement('input');
@@ -744,12 +745,11 @@ function renderPartyRoster() {
       const saveParty = document.createElement('button');
       saveParty.type = 'button';
       saveParty.className = 'secondary small';
-      saveParty.textContent = '비고 · 징표 저장';
+      saveParty.textContent = '비고 저장';
       saveParty.addEventListener('click', () => updatePartySetting(
         '/api/sanctuary/roster/party-details',
-        {sanctuary:activeSection, partyNumber:party, note:partyNote.value, marker:partyMark.value},
-        saveParty));
-      partyFields.append(partyMarkWrap, partyNoteWrap, saveParty);
+        {sanctuary:activeSection, partyNumber:party, note:partyNote.value}, saveParty));
+      partyFields.append(partyNoteWrap,saveParty);
       card.append(partyFields);
       for (let slot=1;slot<=PARTY_CAPACITY;slot++) {
         const item = members.find(r=>Number(r.slot_number)===slot);
@@ -760,23 +760,20 @@ function renderPartyRoster() {
         const contents=document.createElement('div');
         contents.style.flex='1';
         const name=document.createElement('strong');
-        name.textContent=item ? `${markText(item.member_marker) ? markText(item.member_marker)+'  ' : ''}${item.nickname}` : '빈 자리';
+        name.textContent = item ? item.nickname : '빈 자리';
+        if (item && markText(item.member_marker)) {
+          const marker = document.createElement('span');
+          marker.className = 'assigned-marker';
+          marker.textContent = markText(item.member_marker);
+          marker.setAttribute('aria-label', `징표 ${PARTY_MARKS.find(([value]) => value === item.member_marker)?.[1] || item.member_marker}`);
+          contents.append(marker);
+        }
         contents.append(name);
         if (item) {
-          const memberMark = document.createElement('select');
-          memberMark.className = 'member-marker-select';
-          memberMark.setAttribute('aria-label', `${item.nickname} 징표`);
-          appendMarkOptions(memberMark);
-          memberMark.value = item.member_marker || '';
-          memberMark.title = `${item.nickname}의 징표`;
-          memberMark.addEventListener('change', () => updatePartySetting(
-            '/api/sanctuary/roster/member-marker',
-            {sanctuary:activeSection,nickname:item.nickname,marker:memberMark.value},
-            memberMark));
           const desc=document.createElement('div');
           desc.className='slot-detail';
           desc.textContent=memberInfo(item);
-          contents.append(desc, memberMark);
+          contents.append(desc);
         }
         line.append(num,contents);
         card.append(line);
@@ -787,7 +784,6 @@ function renderPartyRoster() {
     cards.append(forceCard);
   }
 }
-
 async function updatePartySetting(path, payload, control) {
   control.disabled = true;
   $('partyMessage').textContent = '저장 중...';
@@ -837,7 +833,7 @@ function renderHomework() {
   $('hwCharacterCount').textContent = String(rows.length);
   $('hwCompletedCount').textContent = `${completed} / ${possible}`;
   $('hwCompletedPercent').textContent = `${possible ? Math.round(completed / possible * 100) : 0}%`;
-  $('hwWeekLabel').textContent = `${homeworkData.weekStart} 시작 주간 · 매주 수요일 05:00 초기화 (어비스회랑 제외)`;
+  $('hwWeekLabel').textContent = `${homeworkData.weekStart} 시작 주간 · 일반 숙제: 수요일 05:00 · 어비스회랑: 수·토 21:00 초기화`;
   const tbody = $('hwRows');
   tbody.replaceChildren();
   if (!rows.length) {

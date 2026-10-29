@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: am-availability-party-note-markers-20261029 -->
+  <!-- UI version: assignment-marker-no-status-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -152,6 +152,45 @@
     .hw-toggle:focus-visible { outline:3px solid #ffffff; }
     .hw-stat { color:#e9be78; font-weight:800; }
     @media (max-width:600px) { .sub-tabs{gap:8px} .sub-tab{font-size:16px;min-height:60px;padding:12px 6px} }
+
+    /* 참여자는 1인 1행: 참여자 / 캐릭터 / 개인 징표 / 파티 배정 */
+    .roster-layout { grid-template-columns: minmax(0,1fr); }
+    .roster-compact-header,.roster-compact-row { display:grid; grid-template-columns:minmax(95px,.8fr) minmax(180px,1.8fr) minmax(105px,.9fr) minmax(205px,1.7fr); gap:10px; align-items:center; }
+    .roster-compact-header { padding:9px 11px; color:var(--gold); font-size:12px; font-weight:800; border-bottom:1px solid var(--line); }
+    .roster-compact-row { border-bottom:1px solid var(--line); padding:10px 11px; }
+    .roster-compact-row:last-child { border-bottom:0; }
+    .roster-compact-row select { font-size:13px; padding:9px 8px; min-width:0; }
+    .roster-compact-identity { display:flex; flex-direction:column; gap:4px; min-width:0; }
+    .roster-compact-identity strong { font-size:14px; overflow-wrap:anywhere; }
+    .roster-compact-identity small { color:var(--muted); font-size:11px; }
+    .force-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .force-parties { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .party-edit-fields { grid-template-columns:minmax(0,1fr) auto; align-items:end; }
+    .party-edit-fields button { margin-bottom:1px; }
+    @media (max-width:1000px) { .force-grid{grid-template-columns:1fr;} }
+    @media (max-width:700px) {
+      .roster-compact-header { display:none; }
+      .roster-compact-row { grid-template-columns:repeat(2,minmax(0,1fr)); padding:13px 2px; }
+      .roster-compact-identity { grid-column:1/-1; }
+      .roster-compact-row select:last-child { grid-column:1/-1; }
+      .force-parties { grid-template-columns:1fr; }
+    }
+      /* 참여자별 파티·징표 한 번에 저장: 모든 화면에서 같은 입력 그룹 */
+    .roster-compact-header,.roster-compact-row {
+      grid-template-columns:minmax(90px,.7fr) minmax(170px,1.4fr) minmax(330px,2.8fr);
+    }
+    .roster-assignment { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(105px,.9fr) auto; gap:8px; align-items:center; min-width:0; }
+    .roster-assignment .assignment-save { min-height:39px; white-space:nowrap; }
+    .assigned-marker { display:inline-flex; justify-content:center; align-items:center; font-size:14px; font-weight:900; color:#2a2114; background:#f1c778; border-radius:6px; min-width:24px; height:23px; margin-right:8px; vertical-align:middle; }
+    @media (max-width:900px) {
+      .roster-compact-header { display:none; }
+      .roster-compact-row { grid-template-columns:1fr; }
+      .roster-assignment { grid-template-columns:minmax(0,1fr) minmax(115px,.6fr) auto; }
+    }
+    @media (max-width:540px) {
+      .roster-assignment { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+      .roster-assignment .assignment-save { grid-column:1/-1; }
+    }
   </style>
 </head>
 <body>
@@ -280,7 +319,7 @@
                 <h2>전체 참여 캐릭터</h2>
                 <button class="secondary small" id="reloadPartyRoster" type="button">새로고침</button>
               </div>
-              <p class="roster-summary">현재 성역의 고정 참여자 명단과 연동돼요. 파티는 성역별로 독립적으로 저장되고, 일정 동기화에는 영향을 주지 않습니다.</p>
+              <p class="roster-summary">캐릭터를 연결하고, 파티 위치와 징표를 함께 선택한 뒤 「배정 저장」을 누르세요. 오른쪽 파티 편성에 징표가 표시됩니다.</p>
               <div id="rosterMembers"></div>
             </div>
             <div class="card">
@@ -288,7 +327,7 @@
                 <h2>파티 편성</h2>
                 <span class="tag">1포스 → 2포스 → 3포스 → 4포스</span>
               </div>
-              <p class="roster-summary">각 포스는 1파티·2파티로 구성되고, 파티당 5명까지 배정할 수 있습니다. 파티별 비고·징표와 개인별 징표를 선택해 저장할 수 있습니다. 중복 배정은 허용되지 않습니다.</p>
+              <p class="roster-summary">각 포스는 2개 파티, 각 파티는 5자리입니다. 참여자별 징표는 왼쪽에서 파티와 함께 저장하고 여기에는 표시만 됩니다. 파티별 비고는 따로 저장할 수 있습니다.</p>
               <div id="partyCards" class="force-grid"></div>
             </div>
           </div>
@@ -300,7 +339,7 @@
           <div><h1>숙제</h1><p class="muted">접속한 닉네임으로 등록된 캐릭터의 숙제만 표시하고 저장합니다.</p></div>
           <span class="tag" id="hwCurrentNick">슬롱 님의 숙제</span>
         </div>
-        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑 완료 기록은 유지됩니다. 등록 캐릭터는 유지됩니다.</p>
+        <p class="weekly-reset-note">⏰ 각성전·루드라·침식·무스펠·델트라스·시련·오드구매 완료 기록은 <strong>매주 수요일 오전 5시(한국시간)</strong> 초기화됩니다. 어비스회랑은 <strong>수요일·토요일 오후 9시(KST)</strong>에 별도로 초기화됩니다. 등록 캐릭터는 유지됩니다.</p>
         <div id="hwTableView" hidden>
           <div class="grid">
             <div class="stat">내 캐릭터<strong id="hwCharacterCount">0</strong></div>
@@ -320,6 +359,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=am-party-note-marker-20261029"></script>
+  <script type="module" src="/app.js?v=assignment-marker-no-status-20261029"></script>
 </body>
 </html>

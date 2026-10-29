@@ -227,7 +227,8 @@ async function lookupCharacter(env, characterName, serverId) {
 }
 
 
-// 매주 월요일~일요일, 성역별/닉네임별 일정을 별도로 저장.
+// 매주 월요일~일요일 일정. 4·3성역은 같은 주차와 닉네임이 양쪽에 등록된 경우에만 요일별 참석 상태를 동기화한다.
+// 2성역은 항상 독립적이고, 성역별 비고도 독립 관리한다.
 const SANCTUARIES = new Set(['4', '3', '2']);
 const STATUS_VALUES = new Set(['', 'yes', 'pm', 'no']);
 function validMonday(value) {
@@ -310,7 +311,45 @@ async function api(request, env, path) {
       'SELECT nickname, statuses, note, updated_by, updated_at FROM sanctuary_schedules ' +
       'WHERE sanctuary = ? AND week_start = ? ORDER BY nickname COLLATE NOCASE LIMIT 300'
     ).bind(sanctuary, weekStart).all();
-    return json({ sanctuary, weekStart, entries: rows.results.map(formatSanctuaryRow) });
+    // 상대 성역에 본인 일정이 있는지 확인. 아직 참여하지 않은 사람을 자동 등록하지 않는다.
+    let counterpart = null;
+    if (sanctuary === '4' || sanctuary === '3') {
+      const other = sanctuary === '4' ? '3' : '4';
+      const otherRow = await env.DB.prepare(
+        'SELECT nickname, statuses, note, updated_by, updated_at FROM sanctuary_schedules ' +
+        'WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
+      ).bind(other, weekStart, user.nickname).first();
+      if (otherRow) counterpart = { sanctuary: other, ...formatSanctuaryRow(otherRow) };
+    }
+    return json({ sanctuary, weekStart, entries: rows.results.map(formatSanctuaryRow), counterpart });
+  }
+
+  // 4·3성역 중 아직 참여하지 않은 쪽으로 일정을 한 번에 가져온다.
+  // 이후 양쪽에 등록된 동안에는 '가능/오후 가능/불가능'만 양방향 동기화된다.
+  if (path === '/api/sanctuary/link' && method === 'POST') {
+    const body = await readJson(request);
+    const sanctuary = body.sanctuary;
+    const weekStart = body.weekStart;
+    if ((sanctuary !== '4' && sanctuary !== '3') || !validMonday(weekStart)) {
+      return json({ error: '4성역 또는 3성역과 올바른 주차를 선택하세요.' }, 400);
+    }
+    const other = sanctuary === '4' ? '3' : '4';
+    const source = await env.DB.prepare(
+      'SELECT statuses FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
+    ).bind(other, weekStart, user.nickname).first();
+    if (!source) return json({ error: '다른 성역에 가져올 일정이 없습니다.' }, 404);
+    const statuses = formatSanctuaryRow({ ...source, nickname: user.nickname, note: '', updated_by: user.nickname, updated_at: now }).statuses;
+    if (statuses.every(value => value === '')) {
+      return json({ error: '다른 성역의 요일별 일정을 먼저 입력해 주세요.' }, 409);
+    }
+    const insert = await env.DB.prepare(
+      'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sanctuary, week_start, nickname) DO NOTHING'
+    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), '', user.nickname, now).run();
+    if (!insert.meta.changes) {
+      return json({ error: '이미 이 성역에 일정이 있습니다. 양쪽에 등록된 일정은 저장 시 동기화됩니다.' }, 409);
+    }
+    return json({ success: true, linked: true });
   }
 
   if (path === '/api/sanctuary' && method === 'POST') {
@@ -326,21 +365,44 @@ async function api(request, env, path) {
         /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) {
       return json({ error: '일정 입력 값을 확인해 주세요.' }, 400);
     }
-    // 비어 있는 일정은 삭제하고, 과거 주차의 다른 데이터는 보존한다.
+    // 빈 일정 + 빈 비고는 현재 성역의 참여 기록만 삭제한다.
+    // 상대 성역 기록은 보존되어 의도치 않은 참여 취소를 방지한다.
     if (statuses.every(value => value === '') && note === '') {
       await env.DB.prepare(
         'DELETE FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
       ).bind(sanctuary, weekStart, user.nickname).run();
-      return json({ success: true, cleared: true });
+      return json({ success: true, cleared: true, unlinked: sanctuary !== '2' });
     }
-    await env.DB.prepare(
+    const currentSave = env.DB.prepare(
       'INSERT INTO sanctuary_schedules (sanctuary, week_start, nickname, statuses, note, updated_by, updated_at) ' +
       'VALUES (?, ?, ?, ?, ?, ?, ?) ' +
       'ON CONFLICT(sanctuary, week_start, nickname) DO UPDATE SET ' +
       'nickname = excluded.nickname, statuses = excluded.statuses, note = excluded.note, ' +
       'updated_by = excluded.updated_by, updated_at = excluded.updated_at'
-    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), note, user.nickname, now).run();
-    return json({ success: true });
+    ).bind(sanctuary, weekStart, user.nickname, JSON.stringify(statuses), note, user.nickname, now);
+    if (sanctuary !== '4' && sanctuary !== '3') {
+      await currentSave.run();
+      return json({ success: true, synced: false });
+    }
+    const other = sanctuary === '4' ? '3' : '4';
+    const otherRow = await env.DB.prepare(
+      'SELECT id FROM sanctuary_schedules WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
+    ).bind(other, weekStart, user.nickname).first();
+    if (!otherRow) {
+      // 상대 성역에 참여하지 않는 사람을 자동 등록하지 않는다.
+      await currentSave.run();
+      return json({ success: true, synced: false });
+    }
+    // 양쪽에 등록된 동일 닉네임/주차: 요일별 상태만 양방향 동기화한다.
+    // 상대 성역의 비고는 변경하지 않으며, 두 UPDATE는 D1 배치 트랜잭션으로 묶는다.
+    await env.DB.batch([
+      currentSave,
+      env.DB.prepare(
+        'UPDATE sanctuary_schedules SET statuses = ?, updated_by = ?, updated_at = ? ' +
+        'WHERE sanctuary = ? AND week_start = ? AND nickname = ?'
+      ).bind(JSON.stringify(statuses), user.nickname, now, other, weekStart, user.nickname)
+    ]);
+    return json({ success: true, synced: true, synchronizedWith: other });
   }
 
   if (method === 'GET' && path === '/api/characters') {

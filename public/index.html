@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>아이온2 관리</title>
-  <!-- UI version: server-dropdown-20261029 -->
+  <!-- UI version: sanctuary-sync-20261029 -->
   <style>
     :root { color-scheme:dark; --bg:#0b101c;--panel:#182238;--line:#2d3b53;--text:#f5f5f6;--muted:#a4b2c8;--gold:#e9be78; }
     * { box-sizing:border-box; }
@@ -56,6 +56,9 @@
     .availability-item { padding:12px 9px; background:#111b2e; border:1px solid var(--line); border-radius:10px; min-width:0; }
     .availability-item label { margin:0 0 10px; font-weight:700; color:var(--gold); }
     .availability-item select { padding:10px 5px; font-size:14px; }
+    .sync-panel { margin:15px 0 20px; padding:15px 17px; border:1px solid #52607d; border-radius:10px; background:#182b40; }
+    .sync-panel p { margin:0 0 11px; color:#c8ddf7; font-size:14px; line-height:1.65; }
+    .sync-panel p:last-child { margin-bottom:0; }
     .schedule-summary { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; }
     .schedule-summary > div { padding:12px 8px; border:1px solid var(--line); border-radius:10px; text-align:center; background:#111b2e; }
     .schedule-summary .sumdate { color:var(--gold); font-size:13px; margin-bottom:9px; font-weight:700; }
@@ -124,7 +127,7 @@
       </section>
       <section id="sanctuaryPanel" hidden>
         <div class="sectionhead" style="flex-wrap:wrap;gap:16px;margin-bottom:20px">
-          <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">성역별 일정은 서로 독립적으로 저장됩니다.</p></div>
+          <div><h1 id="sanctuaryTitle">4성역 · 델트라스</h1><p class="muted">4성역·3성역에 같은 닉네임이 참여하면 요일별 일정이 연동됩니다. 2성역은 독립 관리합니다.</p></div>
           <div class="week-controls">
             <button class="secondary small" type="button" id="prevWeek">이전 주</button>
             <span class="week-label" id="weekLabel"></span>
@@ -135,11 +138,15 @@
         <div class="card">
           <div class="sectionhead"><h2>내 참여 일정</h2><span class="tag" id="scheduleNickname"></span></div>
           <p class="muted">날짜별로 가능 여부를 선택하고 저장해 주세요. 미입력은 아직 일정을 제출하지 않은 상태입니다.</p>
+          <div class="sync-panel" id="syncSchedulePanel" hidden>
+            <p id="syncScheduleText"></p>
+            <button type="button" class="secondary" id="copySchedule" hidden>다른 성역 일정 가져와 참여</button>
+          </div>
           <form id="scheduleForm">
             <div id="scheduleEditor" class="availability-editor"></div>
             <label for="scheduleNote">비고 (선택)</label>
             <textarea id="scheduleNote" maxlength="300" rows="2" placeholder="예: 토요일 오후 8시 이후 가능"></textarea>
-            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">내 일정 비우기</button></div>
+            <div class="actions"><button class="primary" type="submit" id="saveSchedule">내 일정 저장</button><button class="secondary" type="button" id="clearSchedule">이 성역 일정 삭제</button></div>
             <p class="message" id="scheduleMessage" role="status"></p>
           </form>
         </div>
@@ -156,6 +163,6 @@
       <p class="muted" style="font-size:13px">공용 접속 코드 방식이므로 닉네임 자체가 본인 인증은 아닙니다. 같은 닉네임으로 로그인하면 해당 이름의 일정을 변경할 수 있습니다.</p>
     </section>
   </main>
-  <script type="module" src="/app.js?v=sanctuary-tabs-20261029"></script>
+  <script type="module" src="/app.js?v=sanctuary-sync-20261029"></script>
 </body>
 </html>

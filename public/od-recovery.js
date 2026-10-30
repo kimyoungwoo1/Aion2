@@ -2,7 +2,7 @@
 // KST refill boundaries: 02,05,08,11,14,17,20,23 (community schedule).
 // This module is shared by the D1 Worker and browser to avoid divergent estimates.
 export const OD1_INPUT_MAX = 840;
-export const OD2_INPUT_MAX = 2000;
+export const OD2_INPUT_MAX = 999999999;
 export const OD_RECOVERY_INTERVAL_SECONDS = 3 * 60 * 60;
 const KST_OFFSET_SECONDS = 9 * 60 * 60;
 const FIRST_KST_RECOVERY_HOUR = 2;

@@ -371,6 +371,25 @@ async function homeworkApi(request, env, path, user, now) {
     return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order});
   }
 
+  // AION2_HOMEWORK_MANUAL_RESET_V1: completed tasks only; other data is untouched.
+  if (method === 'POST' && path === '/api/homework/reset') {
+    const body = await readJson(request);
+    if (body.confirm !== true) {
+      return json({error:'초기화 확인이 필요합니다.'},400);
+    }
+    // The nickname is obtained from the authenticated server-side session.
+    // Do not accept user-supplied nicknames or character IDs for bulk reset.
+    const week = currentWeekStart();
+    const abyssPeriod = abyssResetPeriod();
+    const result = await env.DB.prepare(`
+      DELETE FROM homework_progress
+      WHERE character_id IN (SELECT id FROM characters WHERE owner_name = ?)
+        AND ((task_key = 'abyss' AND week_start = ?)
+          OR (task_key <> 'abyss' AND week_start = ?))
+    `).bind(nickname, abyssPeriod, week).run();
+    return json({success:true,weekStart:week,resetCount:Number(result.meta?.changes ?? 0)});
+  }
+
   if (method === 'POST' && path === '/api/homework/order') {
     const body = await readJson(request);
     const ids = body.characterIds;

@@ -1327,6 +1327,41 @@ function renderHomework() {
     membershipCell.append(membershipCheckbox);
   }
 }
+// AION2_HOMEWORK_MANUAL_RESET_V1: clear ONLY completed tasks for this nickname.
+$('hwReset').addEventListener('click', async () => {
+  const resetButton = $('hwReset');
+  if (!homeworkData || !user) {
+    $('hwMessage').textContent = '숙제 현황을 먼저 불러와 주세요.';
+    return;
+  }
+  const list = homeworkData.characters || [];
+  const completed = list.reduce((n, ch) => n + (ch.completed?.length || 0), 0);
+  if (list.length === 0 || completed === 0) {
+    $('hwMessage').textContent = '현재 초기화할 완료 기록이 없습니다.';
+    return;
+  }
+  const accepted = window.confirm(
+    `${user.nickname} 님의 캐릭터 ${list.length}명에서 이번 주 숙제 완료 기록 ${completed}개를 모두 미완료로 초기화할까요?\n\n` +
+    '어비스회랑의 현재 회차 완료 기록도 초기화됩니다.\n' +
+    '오드1·오드2, 멤버십, 캐릭터 정렬 순서는 유지됩니다.\n' +
+    '초기화한 완료 기록은 자동 복원되지 않습니다.'
+  );
+  if (!accepted) return;
+  resetButton.disabled = true;
+  $('hwReload').disabled = true;
+  $('hwMessage').textContent = '숙제 완료 기록을 초기화하는 중...';
+  try {
+    const result = await api('/api/homework/reset', 'POST', {confirm:true});
+    await loadHomework();
+    $('hwMessage').textContent = `초기화 완료: 완료 기록 ${result.resetCount}개를 미완료로 변경했습니다. 오드와 정렬 순서는 그대로 유지됩니다.`;
+  } catch (error) {
+    $('hwMessage').textContent = `현황 초기화 실패: ${error.message}`;
+  } finally {
+    resetButton.disabled = false;
+    $('hwReload').disabled = false;
+  }
+});
+
 $('hwReload').addEventListener('click', async () => {
   try { await loadHomework(); }
   catch(error) { $('hwMessage').textContent = error.message; }

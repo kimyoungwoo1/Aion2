@@ -194,6 +194,17 @@ async function sanctuaryMember(env, sanctuary, nickname) {
 
 // 한국시간 수요일 05:00을 기준으로 새로운 주를 시작합니다.
 // UTC+4로 날짜를 계산하면 수요일 00:00~04:59 KST에는 지난 주를 유지합니다.
+// AION2_SANCTUARY_MONDAY_RESET_KEEP_WED_TUE_V2
+// Sanctuary's stored key is still a Wednesday (seven columns: Wed..Tue),
+// but it switches at Monday 00:00 KST instead of Wednesday 05:00.
+// Mon/Tue point at the upcoming Wednesday, so Wednesday itself does NOT reset again.
+function currentSanctuaryWeekStart(timestamp = Date.now()) {
+  const korea = new Date(timestamp + 9 * 60 * 60 * 1000);
+  const daysSinceMonday = (korea.getUTCDay() + 6) % 7;
+  korea.setUTCDate(korea.getUTCDate() - daysSinceMonday + 2);
+  return korea.toISOString().slice(0, 10);
+}
+
 function currentWeekStart(timestamp = Date.now()) {
   const korea = new Date(timestamp + 4 * 60 * 60 * 1000);
   const utcDay = korea.getUTCDay();
@@ -214,11 +225,11 @@ function abyssResetPeriod(timestamp = Date.now()) {
 
 // 조회/저장에서도 이전 기간 데이터를 정리해 Cron 지연 중에도 정확히 초기화한다.
 // 고정 명단, 캐릭터, 포스 및 파티 편성은 삭제하지 않는다.
-async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = abyssResetPeriod()) {
+async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = abyssResetPeriod(), sanctuaryWeek = currentSanctuaryWeekStart()) {
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(week),
-    env.DB.prepare('DELETE FROM sanctuary_shared_schedule_notes WHERE week_start < ?').bind(week),
-    env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(week),
+    env.DB.prepare('DELETE FROM sanctuary_shared_availability WHERE week_start < ?').bind(sanctuaryWeek),
+    env.DB.prepare('DELETE FROM sanctuary_shared_schedule_notes WHERE week_start < ?').bind(sanctuaryWeek),
+    env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(sanctuaryWeek),
     env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week),
     env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod)
   ]);
@@ -628,7 +639,7 @@ async function api(request, env, path) {
     const url = new URL(request.url);
     const sanctuary = url.searchParams.get('sanctuary');
     const weekStart = url.searchParams.get('weekStart');
-    if (!SANCTUARIES.has(sanctuary) || !validWednesday(weekStart) || weekStart !== currentWeekStart()) {
+    if (!SANCTUARIES.has(sanctuary) || !validWednesday(weekStart) || weekStart !== currentSanctuaryWeekStart()) {
       return json({ error: '성역 또는 주차가 올바르지 않습니다. 이번 주 일정만 관리할 수 있습니다.' }, 400);
     }
     await cleanOldWeeklyData(env);
@@ -839,7 +850,7 @@ async function api(request, env, path) {
         /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) {
       return json({ error: '일정 입력 값을 확인해 주세요.' }, 400);
     }
-    if (weekStart !== currentWeekStart()) return json({error:'이번 주 일정만 저장할 수 있습니다.'},400);
+    if (weekStart !== currentSanctuaryWeekStart()) return json({error:'이번 주 일정만 저장할 수 있습니다.'},400);
     await cleanOldWeeklyData(env);
     if (!(await sanctuaryMember(env, sanctuary, user.nickname))) {
       return json({ error: '해당 성역의 고정 참여자 명단에 로그인 닉네임을 먼저 추가해 주세요.' }, 403);
@@ -952,7 +963,7 @@ export default {
     if (controller.cron === POWER_REFRESH_CRON) {
       await refreshAllCharactersOnSchedule(env, controller.scheduledTime);
     } else {
-      await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime), abyssResetPeriod(controller.scheduledTime));
+      await cleanOldWeeklyData(env, currentWeekStart(controller.scheduledTime), abyssResetPeriod(controller.scheduledTime), currentSanctuaryWeekStart(controller.scheduledTime));
     }
   },
   async fetch(request, env) {

@@ -314,7 +314,7 @@ const weekDayNames = ['수', '목', '금', '토', '일', '월', '화'];
 const availabilityLabels = { '': '미입력', am: '오전 가능', pm: '오후 가능', yes: '가능', no: '불가능' };
 const availabilityInputOptions = [['', '미입력'], ['am', '오전 가능'], ['pm', '오후 가능'], ['yes', '가능'], ['no', '불가능']];
 let activeSection = 'characters';
-let activeWeek = wednesdayFor(seoulResetDay());
+let activeWeek = sanctuaryWednesdayForCurrentCycle();
 let sanctuaryRows = [];
 let sanctuaryIsMember = false;
 let activeSanctuaryView = 'schedule';
@@ -331,11 +331,6 @@ const PARTY_CAPACITY = 5;
 const TOTAL_PARTIES = FORCE_COUNT * PARTIES_PER_FORCE;
 
 
-// 한국시간 수요일 05:00을 주간 경계로 취급합니다.
-// 05:00 이전의 수요일은 아직 직전 주입니다.
-function seoulResetDay() {
-  return new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10);
-}
 function shiftDay(date, days) {
   const d = new Date(date + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
@@ -344,6 +339,13 @@ function shiftDay(date, days) {
 function wednesdayFor(date) {
   const d = new Date(date + 'T00:00:00Z');
   return shiftDay(date, -((d.getUTCDay() + 4) % 7));
+}
+// AION2_SANCTUARY_MONDAY_RESET_KEEP_WED_TUE_V2
+// Calendar columns remain Wed..Tue. At Monday midnight, switch to the next
+// Wednesday's seven-day view; do not switch again on Wednesday morning.
+function sanctuaryWednesdayForCurrentCycle() {
+  const kstDay = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  return wednesdayFor(shiftDay(kstDay, 2));
 }
 function shortDate(date) {
   return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
@@ -548,14 +550,14 @@ async function switchSection(section) {
 document.querySelectorAll('[data-section]').forEach(button => {
   button.addEventListener('click', () => switchSection(button.dataset.section));
 });
-// 이번 주만 유지: 매주 수요일 오전 5시(KST)에 새 주차로 전환한다.
+// 성역 일정은 매주 월요일 00:00(KST)에 다음 수~화 주차로 전환한다.
 function syncCurrentWeek() {
-  const current = wednesdayFor(seoulResetDay());
+  const current = sanctuaryWednesdayForCurrentCycle();
   if (current === activeWeek) return false;
   activeWeek = current;
   return true;
 }
-// 사이트를 수요일 오전 5시에도 계속 열어 놓았으면 다음 주로 전환한다.
+// 월요일 00:00(KST)에 계속 열어 둔 화면도 새 성역 주차로 전환한다.
 setInterval(async () => {
   if (!syncCurrentWeek() || !user) return;
   if (['4','3','2'].includes(activeSection)) {

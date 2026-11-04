@@ -28,7 +28,7 @@ function token() {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
 }
 function configured(env) {
-  return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length >= 12 &&
+  return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length > 0 &&
     env.ADMIN_PASSWORD !== env.ACCESS_CODE;
 }
 async function adminAuthorized(request, env, user) {
@@ -44,7 +44,7 @@ async function adminAuthorized(request, env, user) {
 
 export async function handleAdminApi(request, env, path, user, json, readJson) {
   const now = Math.floor(Date.now() / 1000);
-  if (!configured(env)) return json({ error: 'ADMIN_PASSWORD Secret을 12자 이상으로 설정해 주세요.' }, 503);
+  if (!configured(env)) return json({ error: 'ADMIN_PASSWORD Secret 설정을 확인해 주세요. (공용 접속 코드와 다른 값이어야 합니다.)' }, 503);
   if (path === '/api/admin/login' && request.method === 'POST') {
     const body = await readJson(request);
     if (typeof body.password !== 'string' || body.password.length > 256) {

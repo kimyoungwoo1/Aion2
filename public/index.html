@@ -135,22 +135,29 @@
     .sub-tab { width:100%; min-height:65px; padding:18px 20px; font-size:19px; font-weight:850; text-align:center; background:#17243b; border:1px solid #465875; }
     .sub-tab.active { background:#e9be78; color:#24201a; border-color:#e9be78; box-shadow:0 5px 20px #e9be7825; }
     .weekly-reset-note { color:#f1d5a1; border:1px solid #806540; background:#302a29; padding:12px 15px; border-radius:10px; font-size:14px; margin:14px 0 22px; }
-    /* 숙제 페이지에서는 12개 열이 가로 스크롤 없이 화면에 맞도록 확장/압축 */
+    /* 숙제 화면의 기존 카드/표 구조는 유지하고, 표 안쪽 가독성만 개선 */
     body.homework-mode main { max-width:1510px; }
-    .homework-table { min-width:0; width:100%; table-layout:fixed; }
-    .homework-table th,.homework-table td { text-align:center; padding:10px 3px; font-size:12px; overflow-wrap:anywhere; }
-    .homework-table th { line-height:1.25; font-size:11px; }
-    .homework-table th:first-child,.homework-table td:first-child { text-align:left; width:10%; }
-    .homework-table th:nth-child(2),.homework-table td:nth-child(2) { width:7%; }
-    .homework-table th:nth-child(3),.homework-table td:nth-child(3) { width:9%; }
-    .homework-table th:nth-child(4),.homework-table td:nth-child(4) { width:9%; }
-    .homework-table .hw-toggle { width:100%; max-width:100%; min-width:0; padding:8px 1px; font-size:11px; white-space:nowrap; }
+    .homework-table { min-width:1580px; width:100%; table-layout:auto; border-collapse:separate; border-spacing:0; }
+    .homework-table th,.homework-table td { text-align:center; padding:12px 6px; font-size:13px; line-height:1.35; white-space:nowrap; }
+    .homework-table th { line-height:1.3; font-size:12px; color:#f0c77f; font-weight:850; background:#1a2941; border-bottom:1px solid #465875; }
+    .homework-table td { border-bottom:1px solid #34445e; font-variant-numeric:tabular-nums; }
+    .homework-table tbody tr { transition:background .15s ease; }
+    .homework-table tbody tr:hover { background:#202f49; }
+    .homework-table th:first-child,.homework-table td:first-child { text-align:left; min-width:112px; }
+    .homework-table th:nth-child(2),.homework-table td:nth-child(2) { min-width:76px; }
+    .homework-table th:nth-child(3),.homework-table td:nth-child(3) { min-width:92px; }
+    .homework-table th:nth-child(4),.homework-table td:nth-child(4) { min-width:88px; }
+    .homework-table .hw-toggle { width:100%; min-width:78px; padding:9px 5px; font-size:12px; font-weight:750; white-space:nowrap; border-radius:8px; }
+    .homework-table .hw-toggle:not(.done) { background:#596579; border-color:#718098; color:#fff; }
+    .homework-table .hw-toggle.done { background:#d9ad68; color:#211b12; border-color:#f0c77f; }
+    .homework-table .hw-toggle:hover { filter:brightness(1.12); }
+    .homework-table th.hw-task-column { min-width:86px; }
     @media (max-width:700px) {
-      .homework-table th,.homework-table td { padding:8px 1px; font-size:10px; }
-      .homework-table th { font-size:9px; }
-      .homework-table .hw-toggle { font-size:9px; padding:7px 0; }
+      .homework-table { min-width:1580px; }
+      .homework-table th,.homework-table td { padding:10px 5px; font-size:12px; }
+      .homework-table th { font-size:11px; }
+      .homework-table .hw-toggle { font-size:11px; padding:8px 4px; }
     }
-    .hw-toggle.done { background:#e9be78; color:#262016; border-color:#d3a551; }
     .hw-toggle:focus-visible { outline:3px solid #ffffff; }
     .hw-stat { color:#e9be78; font-weight:800; }
     @media (max-width:600px) { .sub-tabs{gap:8px} .sub-tab{font-size:16px;min-height:60px;padding:12px 6px} }
@@ -311,7 +318,7 @@
     .hw-membership-checkbox:focus-visible { outline:3px solid #fff; outline-offset:3px; }
     .hw-od-total { color:#e9be78; font-weight:800; font-variant-numeric:tabular-nums; }
     .homework-table th small { color:var(--muted); font-size:10px; font-weight:600; }
-    @media(max-width:1050px) { .homework-table { min-width:1060px; } }
+    @media(max-width:1050px) { .homework-table { min-width:1580px; } }
     /* 순서 변경 핸들: 캐릭터명만 드래그되며 숙제 버튼/오드 입력은 그대로 사용 */
     .hw-name-cell { white-space:normal; }
     .hw-drag-handle { display:inline-flex; align-items:center; justify-content:center;
@@ -348,16 +355,21 @@
     .hw-dialog-section h4 {margin:0;font-size:13px;color:#e8c17d;}
     .hw-task-delete {margin-left:5px;padding:0 4px;border:0;background:transparent;color:#f29b9b;font-size:16px;cursor:pointer;}
     .hw-task-delete:disabled {opacity:.5;cursor:wait;}
-    .hw-count-controls {display:flex;align-items:center;justify-content:center;gap:5px;min-width:84px;}
-    .hw-count-step {width:25px;height:27px;padding:0;border:1px solid #536583;border-radius:6px;background:#263650;color:#fff;font-weight:700;cursor:pointer;}
+    .hw-count-controls {display:flex;align-items:center;justify-content:center;gap:6px;min-width:112px;white-space:nowrap;}
+    .hw-count-step {flex:0 0 27px;width:27px;height:29px;padding:0;border:1px solid #617492;border-radius:7px;background:#2b3c58;color:#fff;font-size:15px;font-weight:800;cursor:pointer;}
     .hw-count-step:disabled {opacity:.35;cursor:not-allowed;}
-    .hw-count-input {width:34px;height:27px;box-sizing:border-box;padding:0 2px;border:1px solid #536583;border-radius:5px;background:#101b2d;color:#fff;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;}
+    .hw-count-input {flex:0 0 42px;width:42px;height:29px;box-sizing:border-box;padding:0 3px;border:1px solid #617492;border-radius:6px;background:#101b2d;color:#fff;text-align:center;font-size:13px;font-weight:750;font-variant-numeric:tabular-nums;}
     .hw-count-input:focus {outline:2px solid #e8bd76;outline-offset:1px;}
     .hw-count-input::-webkit-inner-spin-button,.hw-count-input::-webkit-outer-spin-button {-webkit-appearance:none;margin:0;}
     .hw-count-input[type=number] {-moz-appearance:textfield;}
     .hw-count-input:disabled {opacity:.55;}
-    .hw-count-limit {color:#fff;font-size:12px;font-variant-numeric:tabular-nums;}
-    .hw-count-error {display:block;margin-top:4px;color:#ff9b9b;font-size:11px;line-height:1.35;text-align:center;}
+    .hw-count-limit {color:#c6d2e4;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+    .hw-count-error {display:none !important;}
+    .hw-count-error-dialog {width:min(390px,calc(100vw - 36px));border:1px solid #8b5b55;border-radius:14px;padding:22px;background:#1a263b;color:#fff;box-shadow:0 18px 60px #0009;}
+    .hw-count-error-dialog::backdrop {background:#020817bd;backdrop-filter:blur(3px);}
+    .hw-count-error-dialog h3 {margin:0 0 10px;color:#ffb0a8;font-size:19px;}
+    .hw-count-error-dialog p {margin:0;color:#d8e0ed;line-height:1.65;font-size:14px;}
+    .hw-count-error-dialog button {display:block;margin:20px 0 0 auto;min-width:88px;}
     .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
 </style>
   <link rel="stylesheet" href="/content-schedule.css">
@@ -659,7 +671,7 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=homework-count-validation-20261104-v2"></script>
+  <script type="module" src="/app.js?v=homework-table-visibility-count-popup-20261104-v1"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
   <script type="module" src="/inquiries.js"></script>
   <dialog id="hwAddTaskDialog" class="hw-custom-dialog">
@@ -684,6 +696,12 @@
         </div>
       </section>
     </form>
+  </dialog>
+
+  <dialog id="hwCountErrorDialog" class="hw-count-error-dialog" aria-labelledby="hwCountErrorTitle">
+    <h3 id="hwCountErrorTitle">횟수 입력 오류</h3>
+    <p id="hwCountErrorText">입력 가능한 횟수를 확인해 주세요.</p>
+    <button type="button" class="primary" id="hwCountErrorClose">확인</button>
   </dialog>
 </body>
 </html>

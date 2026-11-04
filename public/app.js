@@ -1,5 +1,6 @@
 import { estimatedOd1, nextOdRecoveryAt, OD1_INPUT_MAX, OD2_INPUT_MAX } from "./od-recovery.js";
 const $ = id => document.getElementById(id);
+$('hwCountErrorClose')?.addEventListener('click', () => $('hwCountErrorDialog')?.close());
 let user = null;
 let characters = [];
 let bulkRefresh = { last: null, active: null };
@@ -1527,9 +1528,12 @@ function renderHomework() {
         countError.hidden = true;
         countError.setAttribute('role', 'alert');
         const showCountError = () => {
-          countError.textContent = `횟수를 잘못 입력했습니다. 0~${maxCount}회로 입력해 주세요.`;
-          countError.hidden = false;
+          countError.textContent = '';
+          countError.hidden = true;
           value.setAttribute('aria-invalid', 'true');
+          const errorDialog = $('hwCountErrorDialog');
+          $('hwCountErrorText').textContent = `횟수를 잘못 입력했습니다. ${task.label}은(는) 0~${maxCount}회까지 입력할 수 있습니다.`;
+          if (errorDialog && !errorDialog.open) errorDialog.showModal();
         };
         const clearCountError = () => {
           countError.textContent = '';
@@ -1596,7 +1600,7 @@ function renderHomework() {
         minus.addEventListener('click',() => { clearCountError(); if (currentCount > 0) void saveCount(currentCount - 1); });
         plus.addEventListener('click',() => { clearCountError(); if (currentCount < maxCount) void saveCount(currentCount + 1); });
         controls.append(minus,value,limit,plus);
-        cell.append(controls,countError);
+        cell.append(controls);
         continue;
       }
       const button = document.createElement('button');

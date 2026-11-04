@@ -4,7 +4,7 @@ const BUILTIN_TASK_KEYS = Object.freeze([
 ]);
 const MAX_CUSTOM_TASKS = 20;
 const RESERVED_TITLES = new Set(['어비스회랑','각성전','루드라','침식','무스펠','델트라스','시련','오드구매&제작','오드구매']);
-const PRESET_COUNT_TASKS = new Map([['악몽',2],['슈고',14]]);
+const PRESET_COUNT_TASKS = new Map([['악몽',14],['슈고',14]]);
 const PRESET_TOGGLE_TASKS = new Set(['일일 던전']);
 const REFILL_TASKS = new Set(['악몽','슈고']);
 const MAX_BODY_BYTES = 8192;

@@ -1101,6 +1101,28 @@ function renderHomeworkTaskHeaders(tasks) {
     label.textContent = task.label;
     label.className = 'hw-task-caption';
     th.append(handle,label);
+    if (task.custom) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'hw-task-delete';
+      remove.textContent = '×';
+      remove.title = `${task.label} 숙제 삭제`;
+      remove.setAttribute('aria-label',`${task.label} 숙제 삭제`);
+      remove.addEventListener('click', async event => {
+        event.stopPropagation();
+        if (!window.confirm(`'${task.label}' 숙제를 삭제할까요?\\n모든 캐릭터의 해당 숙제 기록도 함께 삭제됩니다.`)) return;
+        remove.disabled = true;
+        try {
+          await api('/api/homework/custom-task','DELETE',{taskId:task.id});
+          await loadHomework();
+          $('hwMessage').textContent = `${task.label} 숙제를 삭제했습니다.`;
+        } catch(error) {
+          $('hwMessage').textContent = error.message;
+          remove.disabled = false;
+        }
+      });
+      th.append(remove);
+    }
     head.insertBefore(th,membership);
     handle.addEventListener('dragstart',event => {
       if (homeworkTaskSaving) { event.preventDefault(); return; }
@@ -1160,30 +1182,46 @@ function setupHomeworkTaskCreator() {
   const cancel = $('hwAddTaskCancel');
   const titleInput = $('hwTaskTitle');
   if (!add || !dialog || !form || !cancel || !titleInput) return;
+
+  async function createTask(title, taskType = 'toggle', maxCount = 0) {
+    add.disabled = true;
+    form.querySelectorAll('button').forEach(button => button.disabled = true);
+    try {
+      await api('/api/homework/custom-task','POST',{title,taskType,maxCount});
+      dialog.close();
+      await loadHomework();
+      $('hwMessage').textContent = `${title} 숙제를 추가했습니다.`;
+    } catch(error) {
+      $('hwMessage').textContent = error.message;
+    } finally {
+      add.disabled = false;
+      form.querySelectorAll('button').forEach(button => button.disabled = false);
+    }
+  }
+
   add.addEventListener('click', () => {
     titleInput.value = '';
     dialog.showModal();
     titleInput.focus();
   });
   cancel.addEventListener('click', () => dialog.close());
+
+  dialog.querySelectorAll('[data-preset-task]').forEach(button => {
+    button.addEventListener('click', () => {
+      const title = button.dataset.presetTask;
+      const maxCount = Number(button.dataset.maxCount);
+      void createTask(title,'count',maxCount);
+    });
+  });
+
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const title = titleInput.value.trim();
     if (!title || title.length > 24) {
-      $('hwMessage').textContent = '\uC219\uC81C \uC774\uB984\uC740 1~24\uC790\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694.';
+      $('hwMessage').textContent = '숙제 이름은 1~24자로 입력해 주세요.';
       return;
     }
-    add.disabled = true;
-    const submit = form.querySelector('[type="submit"]');
-    submit.disabled = true;
-    try {
-      await api('/api/homework/custom-task','POST',{title});
-      dialog.close();
-      await loadHomework();
-      $('hwMessage').textContent = `${title} \uC219\uC81C\uB97C \uCD94\uAC00\uD588\uC2B5\uB2C8\uB2E4. \uC644\uB8CC \uC0C1\uD0DC\uB294 \uC790\uB3D9 \uCD08\uAE30\uD654\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
-    } catch(error) {
-      $('hwMessage').textContent = error.message;
-    } finally {add.disabled=false;submit.disabled=false;}
+    await createTask(title,'toggle',0);
   });
 }
 setupHomeworkTaskCreator();
@@ -1210,7 +1248,10 @@ function renderHomework() {
   if (!homeworkData) return;
   const rows = homeworkData.characters || [];
   const tasks = (homeworkData.tasks || []).map(task => ({ ...task, label: task.label === '오드구매' ? '오드구매&제작' : task.label }));
-  const completed = rows.reduce((sum, ch) => sum + (ch.completed?.length || 0) + (ch.customCompleted?.length || 0), 0);
+  const completed = rows.reduce((sum, ch) => sum + taskColumns.filter(task => {
+    if (task.type === 'count') return Number(ch.customCounts?.[task.key] || 0) >= Number(task.maxCount || 0);
+    return task.custom ? (ch.customCompleted || []).includes(task.key) : (ch.completed || []).includes(task.key);
+  }).length, 0);
   const possible = rows.length * taskColumns.length;
   $('hwCharacterCount').textContent = String(rows.length);
   $('hwCompletedCount').textContent = `${completed} / ${possible}`;
@@ -1453,6 +1494,44 @@ function renderHomework() {
     displaySum();
     for (const task of taskColumns) {
       const cell = row.insertCell();
+      if (task.type === 'count') {
+        cell.className = 'hw-count-cell';
+        const count = Number(character.customCounts?.[task.key] || 0);
+        const controls = document.createElement('div');
+        controls.className = 'hw-count-controls';
+        const minus = document.createElement('button');
+        minus.type = 'button';
+        minus.className = 'hw-count-step';
+        minus.textContent = '−';
+        minus.disabled = count <= 0;
+        const value = document.createElement('span');
+        value.className = 'hw-count-value';
+        value.textContent = `${count}/${task.maxCount}`;
+        const plus = document.createElement('button');
+        plus.type = 'button';
+        plus.className = 'hw-count-step';
+        plus.textContent = '+';
+        plus.disabled = count >= task.maxCount;
+        const saveCount = async next => {
+          minus.disabled = true; plus.disabled = true;
+          $('hwMessage').textContent = `${character.name} · ${task.label} 저장 중...`;
+          try {
+            await api('/api/homework/custom-count','POST',{
+              characterId:character.id,taskId:task.id,count:next
+            });
+            if (activeSection === 'homework') await loadHomework();
+            $('hwMessage').textContent = `${character.name} · ${task.label} ${next}/${task.maxCount}회 저장 완료`;
+          } catch(error) {
+            $('hwMessage').textContent = error.message;
+            minus.disabled = count <= 0; plus.disabled = count >= task.maxCount;
+          }
+        };
+        minus.addEventListener('click',() => { if (count > 0) void saveCount(count - 1); });
+        plus.addEventListener('click',() => { if (count < task.maxCount) void saveCount(count + 1); });
+        controls.append(minus,value,plus);
+        cell.append(controls);
+        continue;
+      }
       const button = document.createElement('button');
       const done = task.custom
         ? (character.customCompleted || []).includes(task.key)

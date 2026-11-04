@@ -342,6 +342,16 @@
     .hw-custom-dialog form {display:grid;gap:12px;}
     .hw-custom-dialog h3 {margin:0;}
     .hw-custom-dialog input {width:100%; box-sizing:border-box;}
+    .hw-preset-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+    .hw-preset-grid button {width:100%;}
+    .hw-dialog-section {display:grid;gap:8px;}
+    .hw-dialog-section h4 {margin:0;font-size:13px;color:#e8c17d;}
+    .hw-task-delete {margin-left:5px;padding:0 4px;border:0;background:transparent;color:#f29b9b;font-size:16px;cursor:pointer;}
+    .hw-task-delete:disabled {opacity:.5;cursor:wait;}
+    .hw-count-controls {display:flex;align-items:center;justify-content:center;gap:5px;min-width:84px;}
+    .hw-count-step {width:25px;height:27px;padding:0;border:1px solid #536583;border-radius:6px;background:#263650;color:#fff;font-weight:700;cursor:pointer;}
+    .hw-count-step:disabled {opacity:.35;cursor:not-allowed;}
+    .hw-count-value {min-width:35px;text-align:center;color:#fff;font-variant-numeric:tabular-nums;font-size:12px;}
     .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
 </style>
   <link rel="stylesheet" href="/content-schedule.css">
@@ -643,20 +653,30 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=homework-custom-columns-20261104-v3"></script>
+  <script type="module" src="/app.js?v=homework-count-tasks-20261104-v1"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
   <script type="module" src="/inquiries.js"></script>
   <dialog id="hwAddTaskDialog" class="hw-custom-dialog">
     <form id="hwAddTaskForm">
       <h3>&#xC219;&#xC81C; &#xCD94;&#xAC00;</h3>
-      <label for="hwTaskTitle">&#xC0C8; &#xC219;&#xC81C; &#xC774;&#xB984;</label>
-      <input id="hwTaskTitle" type="text" maxlength="24" required autocomplete="off"
-             placeholder="&#xC219;&#xC81C; &#xC774;&#xB984; &#xC785;&#xB825;" />
-      <p class="muted">&#xCD94;&#xAC00;&#xD55C; &#xC219;&#xC81C;&#xB294; &#xCD08;&#xAE30;&#xD654;&#xD558;&#xC9C0; &#xC54A;&#xC2B5;&#xB2C8;&#xB2E4;.</p>
-      <div class="hw-custom-actions">
-        <button type="button" class="secondary" id="hwAddTaskCancel">&#xCDE8;&#xC18C;</button>
-        <button type="submit" class="primary">&#xCD94;&#xAC00;</button>
-      </div>
+      <section class="hw-dialog-section">
+        <h4>&#xAE30;&#xBCF8; &#xC219;&#xC81C; &#xCD94;&#xAC00;</h4>
+        <div class="hw-preset-grid">
+          <button type="button" class="secondary" data-preset-task="악몽" data-max-count="14">악몽 · 0~14회</button>
+          <button type="button" class="secondary" data-preset-task="일일 던전" data-max-count="21">일일 던전 · 0~21회</button>
+        </div>
+      </section>
+      <section class="hw-dialog-section">
+        <h4>&#xC9C1;&#xC811; &#xC219;&#xC81C; &#xCD94;&#xAC00;</h4>
+        <label for="hwTaskTitle">&#xC0C8; &#xC219;&#xC81C; &#xC774;&#xB984;</label>
+        <input id="hwTaskTitle" type="text" maxlength="24" autocomplete="off"
+               placeholder="&#xC219;&#xC81C; &#xC774;&#xB984; &#xC785;&#xB825;" />
+        <p class="muted">&#xC9C1;&#xC811; &#xCD94;&#xAC00;&#xD55C; &#xC219;&#xC81C;&#xB294; &#xC644;&#xB8CC;/&#xBBF8;&#xC644;&#xB8CC; &#xBC29;&#xC2DD;&#xC73C;&#xB85C; &#xAD00;&#xB9AC;&#xD569;&#xB2C8;&#xB2E4;.</p>
+        <div class="hw-custom-actions">
+          <button type="button" class="secondary" id="hwAddTaskCancel">&#xCDE8;&#xC18C;</button>
+          <button type="submit" class="primary">&#xC9C1;&#xC811; &#xCD94;&#xAC00;</button>
+        </div>
+      </section>
     </form>
   </dialog>
 </body>

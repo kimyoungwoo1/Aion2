@@ -15,8 +15,9 @@ class MockD1 {
       all: async()=> {
         if (sql.includes('FROM homework_custom_tasks') && !sql.includes('JOIN')) {
           return {results:thisDb.tasks.filter(t=>t.owner_name===params[0])
-            .map(t=>({id:t.id,title:t.title}))};
+            .map(t=>({id:t.id,title:t.title,task_type:t.task_type||'toggle',max_count:t.max_count||0}))};
         }
+        if (sql.includes('FROM homework_custom_count_progress')) return {results:[]};
         if (sql.includes('FROM homework_custom_progress')) {
           const tasks=thisDb.tasks.filter(t=>t.owner_name===params[0]);
           const ids=thisDb.chars.filter(c=>c.owner_name===params[1]).map(c=>c.id);
@@ -40,9 +41,9 @@ class MockD1 {
       },
       run: async()=> {
         if (sql.includes('INSERT INTO homework_custom_tasks')) {
-          const [owner_name,title]=params;
+          const [owner_name,title,,task_type,max_count]=params;
           const id=thisDb.nextId++;
-          thisDb.tasks.push({id,owner_name,title});
+          thisDb.tasks.push({id,owner_name,title,task_type,max_count});
           return {meta:{last_row_id:id}};
         }
         if (sql.includes('INSERT INTO homework_task_column_orders')) {
@@ -64,12 +65,12 @@ async function call(path,owner,body) {
   const request=new Request('https://test.local'+path,{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
   });
-  const response=await customHomeworkApi(request,env,path,owner,1730700000);
+  const response=await customHomeworkApi(request,env,path,owner,1730700000,'2026-11-04');
   return {status:response.status,data:await response.json()};
 }
 async function list(owner,ids) {
   const chars=ids.map(id=>({id,completed:[]}));
-  const data=await getCustomHomeworkData(env,owner,chars);
+  const data=await getCustomHomeworkData(env,owner,chars,'2026-11-04');
   return {...data,characters:chars};
 }
 const base=['abyss','awakening','rudra','invasion','muspel','deltras','trial','craft'];

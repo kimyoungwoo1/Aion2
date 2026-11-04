@@ -234,7 +234,8 @@ async function cleanOldWeeklyData(env, week = currentWeekStart(), abyssPeriod = 
     env.DB.prepare('DELETE FROM sanctuary_shared_schedule_notes WHERE week_start < ?').bind(sanctuaryWeek),
     env.DB.prepare('DELETE FROM sanctuary_schedules WHERE week_start < ?').bind(sanctuaryWeek),
     env.DB.prepare("DELETE FROM homework_progress WHERE task_key <> 'abyss' AND week_start < ?").bind(week),
-    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod)
+    env.DB.prepare("DELETE FROM homework_progress WHERE task_key = 'abyss' AND week_start <> ?").bind(abyssPeriod),
+    env.DB.prepare("DELETE FROM homework_custom_count_progress WHERE week_start <> ?").bind(week)
   ]);
 }
 
@@ -341,8 +342,9 @@ async function homeworkApi(request, env, path, user, now) {
   // AION2_HOMEWORK_CUSTOM_COLUMNS_V1: separate owner-scoped persistent tasks.
   if (path === '/api/homework/custom-task' ||
       path === '/api/homework/custom-progress' ||
+      path === '/api/homework/custom-count' ||
       path === '/api/homework/task-order') {
-    return customHomeworkApi(request,env,path,user.nickname,now);
+    return customHomeworkApi(request,env,path,user.nickname,now,currentWeekStart());
   }
 
   const method = request.method;
@@ -389,7 +391,7 @@ async function homeworkApi(request, env, path, user, now) {
         if (Array.isArray(parsed)) order = parsed.filter(Number.isSafeInteger);
       } catch { /* 예전 잘못된 순서 데이터가 있으면 자동 정렬로 대체 */ }
     }
-    const custom = await getCustomHomeworkData(env,nickname,characters);
+    const custom = await getCustomHomeworkData(env,nickname,characters,week);
     return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order,...custom});
   }
 

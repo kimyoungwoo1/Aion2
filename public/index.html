@@ -371,6 +371,47 @@
     .hw-count-error-dialog p {margin:0;color:#d8e0ed;line-height:1.65;font-size:14px;}
     .hw-count-error-dialog button {display:block;margin:20px 0 0 auto;min-width:88px;}
     .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
+
+    /* AION2_HOMEWORK_TABLE_BALANCE_V1 */
+    /* Give the two Od columns breathing room without widening the whole table. */
+    .homework-table th:nth-child(5), .homework-table td:nth-child(5),
+    .homework-table th:nth-child(6), .homework-table td:nth-child(6) {
+      padding-left: 11px;
+      padding-right: 11px;
+    }
+    .homework-table .hw-od-input {
+      max-width: 76px;
+      min-width: 54px;
+    }
+    /* Count-based task columns: compact and evenly proportioned. */
+    .homework-table th.hw-task-column.hw-task-count,
+    .homework-table td.hw-count-cell {
+      min-width: 92px;
+      padding-left: 3px;
+      padding-right: 3px;
+    }
+    .hw-count-controls {
+      min-width: 0;
+      gap: 3px;
+    }
+    .hw-count-step {
+      flex: 0 0 22px;
+      width: 22px;
+      height: 28px;
+      font-size: 14px;
+    }
+    .hw-count-input {
+      flex: 0 0 34px;
+      width: 34px;
+      height: 28px;
+      font-size: 12px;
+    }
+    .hw-count-limit {
+      min-width: 17px;
+      font-size: 12px;
+      text-align: center;
+    }
+
 </style>
   <link rel="stylesheet" href="/content-schedule.css">
   <link rel="stylesheet" href="/inquiries.css">

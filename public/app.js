@@ -1085,10 +1085,10 @@ function renderHomeworkTaskHeaders(tasks) {
   for (const old of all.slice(7,-1)) old.remove();
   const membership = all[all.length-1];
   table.style.minWidth = tasks.length > 8
-    ? `${Math.max(1240,1240 + (tasks.length - 8) * 102)}px` : '';
+    ? `${Math.max(1240,1240 + (tasks.length - 8) * 88)}px` : '';
   for (const task of tasks) {
     const th = document.createElement('th');
-    th.className = 'hw-task-column' + (task.custom ? ' hw-task-custom' : '');
+    th.className = 'hw-task-column' + (task.custom ? ' hw-task-custom' : '') + (task.type === 'count' ? ' hw-task-count' : '');
     th.dataset.taskKey = task.key;
     const handle = document.createElement('span');
     handle.className = 'hw-task-grip';

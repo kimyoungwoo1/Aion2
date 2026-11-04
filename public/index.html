@@ -327,6 +327,7 @@
     .od1-next-recovery-countdown { display:inline-block; font-variant-numeric:tabular-nums; color:var(--gold); font-weight:700; white-space:nowrap; }
   </style>
   <link rel="stylesheet" href="/content-schedule.css">
+  <link rel="stylesheet" href="/inquiries.css">
 </head>
 <body>
   <header>
@@ -356,6 +357,7 @@
         <button class="main-tab" type="button" data-section="2">2성역 · 침식</button>
         <button class="main-tab" type="button" data-section="homework">숙제</button>
         <button class="main-tab" type="button" data-section="contents">컨텐츠 일정표</button>
+        <button class="main-tab" type="button" data-section="inquiries">문의사항</button>
       </nav>
       <section id="characterPanel">
       <div class="sectionhead"><div><h1>아이온2 관리 대시보드</h1><p class="muted">캐릭터명과 서버를 선택하면 직업·아이템 레벨·남툴을 자동 조회합니다.</p></div><span class="tag">1단계 · 베타</span></div>
@@ -472,6 +474,60 @@
         </div>
       </section>
       <!-- AION2_CONTENT_SCHEDULE_V1: user-provided 2026-10-29 screenshot reference -->
+      <!-- AION2_INQUIRIES_V1 -->
+      <section id="inquiriesPanel" hidden aria-labelledby="inquiriesTitle">
+        <div class="card inq-board">
+          <div class="inq-header">
+            <div>
+              <h1 id="inquiriesTitle">문의사항</h1>
+              <p class="muted">궁금한 점이나 개선 요청을 남기고 답글을 확인할 수 있습니다.</p>
+            </div>
+            <div class="inq-actions">
+              <button type="button" class="primary small" id="inqOpenNew">새 문의 작성</button>
+              <button type="button" class="secondary small" id="inqReload">새로고침</button>
+            </div>
+          </div>
+          <form id="inqNewForm" class="inq-box" hidden>
+            <h2>문의 작성</h2>
+            <label for="inqNewTitle">제목</label>
+            <input id="inqNewTitle" maxlength="100" required placeholder="문의 제목을 입력해 주세요">
+            <label for="inqNewBody">내용</label>
+            <textarea id="inqNewBody" maxlength="2000" required rows="6" placeholder="문의 내용이나 개선 요청을 자세히 적어 주세요"></textarea>
+            <p class="muted" style="font-size:12px">작성자 닉네임은 현재 로그인한 이름으로 등록됩니다. 개인정보나 비밀번호는 입력하지 마세요.</p>
+            <div class="actions">
+              <button type="submit" class="primary" id="inqSubmitNew">문의 등록</button>
+              <button type="button" class="secondary" id="inqCancelNew">취소</button>
+            </div>
+          </form>
+          <div id="inqListArea">
+            <div class="inq-filters">
+              <label><input type="checkbox" id="inqMineOnly"> 내 문의만 보기</label>
+              <span class="muted" style="font-size:12px">최신 문의순</span>
+            </div>
+            <p id="inqMessage" class="inq-message" role="status" aria-live="polite"></p>
+            <div id="inqList" class="inq-list" aria-label="문의 목록"></div>
+            <div class="inq-pager">
+              <button type="button" class="secondary small" id="inqPrev">이전</button>
+              <span id="inqPageText" class="muted" style="font-size:12px"></span>
+              <button type="button" class="secondary small" id="inqNext">다음</button>
+            </div>
+          </div>
+          <div id="inqDetail" hidden>
+            <button type="button" class="secondary small" id="inqBack">← 목록으로</button>
+            <h2 class="inq-detail-title" id="inqDetailTitle"></h2>
+            <p class="muted" id="inqDetailMeta" style="font-size:12px"></p>
+            <div id="inqDetailBody" class="inq-body inq-box"></div>
+            <h3>답글</h3>
+            <div id="inqReplies" class="inq-box"></div>
+            <form id="inqReplyForm" class="inq-box">
+              <label for="inqReplyContent">답글 남기기</label>
+              <textarea id="inqReplyContent" required maxlength="1000" rows="3" placeholder="답글을 입력해 주세요"></textarea>
+              <div class="actions"><button type="submit" class="primary" id="inqSubmitReply">답글 등록</button></div>
+            </form>
+            <p id="inqDetailMessage" class="inq-message" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
       <section id="contentSchedulePanel" class="cs-wrap" hidden aria-labelledby="contentScheduleTitle">
         <header class="cs-page-header">
           <div><h1 id="contentScheduleTitle">컨텐츠 일정표</h1><p>24시간 기준 (KST)</p></div>
@@ -569,7 +625,8 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=aion2-od-membership-check-20261029"></script>
+  <script type="module" src="/app.js?v=aion2-od-membership-check-20261029&inquiries=20261104"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
+  <script type="module" src="/inquiries.js"></script>
 </body>
 </html>

@@ -1,0 +1,32 @@
+/* AION2_INQUIRIES_V1: compact, responsive board; unrelated styles unaffected. */
+.inq-board{max-width:1100px;margin:0 auto}
+.inq-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:15px}
+.inq-header h1{font-size:23px;margin:0 0 4px}
+.inq-header p{margin:0;font-size:13px}
+.inq-actions{display:flex;gap:8px;flex-wrap:wrap}
+.inq-box{background:#111a2c;border:1px solid #30435f;border-radius:10px;padding:17px;margin-bottom:15px}
+.inq-box label{font-size:13px;margin:12px 0 5px;display:block;font-weight:650}
+.inq-box input,.inq-box textarea{display:block;width:100%;max-width:100%;box-sizing:border-box}
+.inq-box textarea{resize:vertical;min-height:130px;line-height:1.6}
+.inq-foot{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:12px}
+.inq-foot .muted{font-size:12px}
+.inq-message{font-size:13px;min-height:17px;margin:9px 0;color:#e9be78}
+.inq-filters{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:10px 0}
+.inq-filters label{display:flex;align-items:center;gap:7px;font-size:13px;color:#c5d2e7;cursor:pointer}
+.inq-filters input{width:auto;margin:0;accent-color:#e9be78}
+.inq-list{display:grid;gap:8px}
+.inq-item{display:flex;justify-content:space-between;align-items:center;gap:16px;text-align:left;width:100%;padding:13px 15px;border:1px solid #30435f;border-radius:9px;background:#142038;color:#f4f6fb;cursor:pointer}
+.inq-item:hover,.inq-item:focus-visible{background:#20304b;border-color:#d1aa67}
+.inq-item-main{min-width:0;display:grid;gap:5px}
+.inq-item-title{font-size:15px;font-weight:750;overflow-wrap:anywhere}
+.inq-item-meta{color:#aebfd9;font-size:12px}
+.inq-pill{flex:none;color:#e7be78;background:#423521;padding:5px 8px;border-radius:16px;font-size:11px;font-weight:750}
+.inq-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin:18px 0 4px}
+.inq-pager button{min-width:64px}
+.inq-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8;color:#e3eafa;margin:15px 0}
+.inq-detail-title{font-size:21px;line-height:1.4;margin:12px 0 7px;overflow-wrap:anywhere}
+.inq-reply{border-bottom:1px solid #34435c;padding:12px 2px}
+.inq-reply:last-child{border-bottom:0}
+.inq-reply-meta{color:#b5c7df;font-size:12px}
+.inq-empty{padding:30px 14px;text-align:center;color:#9fb4d0;background:#10192a;border:1px dashed #3b4b64;border-radius:9px}
+@media(max-width:650px){.inq-board{margin:0}.inq-header h1{font-size:20px}.inq-box{padding:12px}.inq-item{gap:8px;padding:11px}.inq-pill{font-size:10px}}

@@ -524,12 +524,14 @@ async function switchSection(section) {
   $('sanctuaryPanel').hidden = !['4','3','2'].includes(section);
   $('homeworkPanel').hidden = section !== 'homework';
   $('contentSchedulePanel').hidden = section !== 'contents';
+  // AION2_INQUIRIES_V1
+  $('inquiriesPanel').hidden = section !== 'inquiries';
   if (section === 'homework') {
     try { await loadHomework(); }
     catch(error) { $('hwMessage').textContent = error.message; }
     return;
   }
-  if (section === 'contents') return;
+  if (section === 'contents' || section === 'inquiries') return;
   if (section !== 'characters') {
     $('sanctuaryTitle').textContent = sanctuaryNames[section];
     $('scheduleMessage').textContent = '';

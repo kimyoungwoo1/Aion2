@@ -1,4 +1,5 @@
 import { lookupOfficialCharacter, OfficialAionLookupError } from "./aion-api.js";
+import { handleInquiriesApi } from "./inquiries-api.js"; // AION2_INQUIRIES_V1
 import { estimatedOd1, OD1_INPUT_MAX, OD2_INPUT_MAX } from "../public/od-recovery.js";
 const encoder = new TextEncoder();
 const SESSION_AGE = 7 * 24 * 60 * 60;
@@ -594,6 +595,10 @@ async function api(request, env, path) {
     `).bind(config,user.nickname,updatedAt,revision).run();
     if (!saved.meta.changes) return json({error:'다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 수정해 주세요.'},409);
     return json({success:true,config:JSON.parse(config),updatedAt,updatedBy:user.nickname,revision:revision+1});
+  }
+
+  if (path === '/api/inquiries' || path.startsWith('/api/inquiries/')) {
+    return handleInquiriesApi(request, env, path, user, json, readJson);
   }
 
   if (path.startsWith('/api/homework')) return homeworkApi(request, env, path, user, now);

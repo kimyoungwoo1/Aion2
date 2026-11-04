@@ -1,4 +1,6 @@
 import { lookupOfficialCharacter, OfficialAionLookupError } from "./aion-api.js";
+import { handleAdminApi } from "./admin-api.js"; // AION2_ADMIN_AUDIT_V1
+import { withAudit } from "./audit-log.js";
 import { handleInquiriesApi } from "./inquiries-api.js"; // AION2_INQUIRIES_V1
 import { estimatedOd1, OD1_INPUT_MAX, OD2_INPUT_MAX } from "../public/od-recovery.js";
 const encoder = new TextEncoder();
@@ -631,6 +633,11 @@ async function api(request, env, path) {
     return handleInquiriesApi(request, env, path, user, json, readJson);
   }
 
+  // AION2_ADMIN_AUDIT_V1: gated by a separate admin secret and session cookie.
+  if (path.startsWith('/api/admin/')) {
+    return handleAdminApi(request, env, path, user, json, readJson);
+  }
+
   if (path.startsWith('/api/homework')) return homeworkApi(request, env, path, user, now);
 
 
@@ -977,7 +984,7 @@ export default {
     }
 
     try {
-      return await api(request, env, path);
+      return await withAudit(request, env, path, () => api(request, env, path), currentUser);
     } catch (error) {
       if (error instanceof LookupError) return json({ error: error.message }, error.status);
       if (['JSON 요청만 허용됩니다.', '요청 크기 초과', '잘못된 JSON 데이터'].includes(error?.message)) {

@@ -1,6 +1,13 @@
 import { estimatedOd1, nextOdRecoveryAt, OD1_INPUT_MAX, OD2_INPUT_MAX } from "./od-recovery.js";
 const $ = id => document.getElementById(id);
 $('hwCountErrorClose')?.addEventListener('click', () => $('hwCountErrorDialog')?.close());
+function showHomeworkPopup(title, message) {
+  const dialog = $('hwCountErrorDialog');
+  if (!dialog) { window.alert(message); return; }
+  $('hwCountErrorTitle').textContent = title;
+  $('hwCountErrorText').textContent = message;
+  if (!dialog.open) dialog.showModal();
+}
 let user = null;
 let characters = [];
 let bulkRefresh = { last: null, active: null };
@@ -1185,6 +1192,12 @@ function setupHomeworkTaskCreator() {
   if (!add || !dialog || !form || !cancel || !titleInput) return;
 
   async function createTask(title, taskType = 'toggle', maxCount = 0) {
+    const existing = (homeworkData?.customTasks || []).some(task =>
+      String(task.label || '').trim().toLocaleLowerCase() === title.trim().toLocaleLowerCase());
+    if (existing) {
+      showHomeworkPopup('이미 추가된 숙제', `'${title}' 숙제는 이미 목록에 추가되어 있습니다.`);
+      return;
+    }
     add.disabled = true;
     form.querySelectorAll('button').forEach(button => button.disabled = true);
     try {
@@ -1193,7 +1206,11 @@ function setupHomeworkTaskCreator() {
       await loadHomework();
       $('hwMessage').textContent = `${title} 숙제를 추가했습니다.`;
     } catch(error) {
-      $('hwMessage').textContent = error.message;
+      if (/already exists|이미 추가|중복/i.test(error.message || '')) {
+        showHomeworkPopup('이미 추가된 숙제', `'${title}' 숙제는 이미 목록에 추가되어 있습니다.`);
+      } else {
+        $('hwMessage').textContent = error.message;
+      }
     } finally {
       add.disabled = false;
       form.querySelectorAll('button').forEach(button => button.disabled = false);
@@ -1250,7 +1267,10 @@ function renderHomework() {
   const rows = homeworkData.characters || [];
   const tasks = (homeworkData.tasks || []).map(task => ({ ...task, label: task.label === '오드구매' ? '오드구매&제작' : task.label }));
   const completed = rows.reduce((sum, ch) => sum + taskColumns.filter(task => {
-    if (task.type === 'count') return Number(ch.customCounts?.[task.key] || 0) >= Number(task.maxCount || 0);
+    if (task.type === 'count') {
+      const count = ch.customCounts?.[task.key];
+      return task.label === '일일 던전' ? Number(count ?? task.maxCount) <= 0 : Number(count || 0) >= Number(task.maxCount || 0);
+    }
     return task.custom ? (ch.customCompleted || []).includes(task.key) : (ch.completed || []).includes(task.key);
   }).length, 0);
   const possible = rows.length * taskColumns.length;
@@ -1497,8 +1517,10 @@ function renderHomework() {
       const cell = row.insertCell();
       if (task.type === 'count') {
         cell.className = 'hw-count-cell';
-        let currentCount = Number(character.customCounts?.[task.key] || 0);
         const maxCount = Number(task.maxCount || 0);
+        const storedCount = character.customCounts?.[task.key];
+        const isDailyDungeon = task.label === '일일 던전';
+        let currentCount = storedCount == null ? (isDailyDungeon ? maxCount : 0) : Number(storedCount);
         const controls = document.createElement('div');
         controls.className = 'hw-count-controls';
         const minus = document.createElement('button');
@@ -1532,6 +1554,7 @@ function renderHomework() {
           countError.hidden = true;
           value.setAttribute('aria-invalid', 'true');
           const errorDialog = $('hwCountErrorDialog');
+          $('hwCountErrorTitle').textContent = '횟수 입력 오류';
           $('hwCountErrorText').textContent = `횟수를 잘못 입력했습니다. ${task.label}은(는) 0~${maxCount}회까지 입력할 수 있습니다.`;
           if (errorDialog && !errorDialog.open) errorDialog.showModal();
         };
@@ -1639,16 +1662,20 @@ $('hwReset').addEventListener('click', async () => {
     return;
   }
   const list = homeworkData.characters || [];
-  const completed = list.reduce((n, ch) => n + (ch.completed?.length || 0), 0);
-  if (list.length === 0 || completed === 0) {
-    $('hwMessage').textContent = '현재 초기화할 완료 기록이 없습니다.';
+  const completed = list.reduce((n, ch) => n + (ch.completed?.length || 0) + (ch.customCompleted?.length || 0), 0);
+  const customCountProgress = list.reduce((n, ch) => n + Object.values(ch.customCounts || {}).filter(value => Number(value) > 0).length, 0);
+  const totalProgress = completed + customCountProgress;
+  if (list.length === 0 || totalProgress === 0) {
+    $('hwMessage').textContent = '현재 초기화할 완료 기록이나 횟수 기록이 없습니다.';
     return;
   }
   const accepted = window.confirm(
-    `${user.nickname} 님의 캐릭터 ${list.length}명에서 이번 주 숙제 완료 기록 ${completed}개를 모두 미완료로 초기화할까요?\n\n` +
-    '어비스회랑의 현재 회차 완료 기록도 초기화됩니다.\n' +
+    `${user.nickname} 님의 캐릭터 ${list.length}명에 저장된 숙제 현황을 초기화할까요?\n\n` +
+    '기본·직접 추가 숙제의 완료 기록과 일일 던전 횟수가 초기화됩니다.\n' +
+    '악몽 횟수는 변경하지 않으며, 일일 던전은 캐릭터별 21회로 복구됩니다.\n' +
+    '직접 추가한 숙제 목록 자체는 삭제되지 않습니다.\n' +
     '오드1·오드2, 멤버십, 캐릭터 정렬 순서는 유지됩니다.\n' +
-    '초기화한 완료 기록은 자동 복원되지 않습니다.'
+    '초기화한 기록은 자동 복원되지 않습니다.'
   );
   if (!accepted) return;
   resetButton.disabled = true;
@@ -1657,7 +1684,7 @@ $('hwReset').addEventListener('click', async () => {
   try {
     const result = await api('/api/homework/reset', 'POST', {confirm:true});
     await loadHomework();
-    $('hwMessage').textContent = `초기화 완료: 완료 기록 ${result.resetCount}개를 미완료로 변경했습니다. 오드와 정렬 순서는 그대로 유지됩니다.`;
+    $('hwMessage').textContent = `초기화 완료: 완료 기록을 초기화하고 일일 던전을 21회로 복구했습니다. 악몽 횟수와 숙제 목록, 오드, 멤버십, 정렬 순서는 유지됩니다.`;
   } catch (error) {
     $('hwMessage').textContent = `현황 초기화 실패: ${error.message}`;
   } finally {

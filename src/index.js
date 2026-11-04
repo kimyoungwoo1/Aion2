@@ -405,13 +405,26 @@ async function homeworkApi(request, env, path, user, now) {
     // Do not accept user-supplied nicknames or character IDs for bulk reset.
     const week = currentWeekStart();
     const abyssPeriod = abyssResetPeriod();
-    const result = await env.DB.prepare(`
-      DELETE FROM homework_progress
-      WHERE character_id IN (SELECT id FROM characters WHERE owner_name = ?)
-        AND ((task_key = 'abyss' AND week_start = ?)
-          OR (task_key <> 'abyss' AND week_start = ?))
-    `).bind(nickname, abyssPeriod, week).run();
-    return json({success:true,weekStart:week,resetCount:Number(result.meta?.changes ?? 0)});
+    const results = await env.DB.batch([
+      env.DB.prepare(`DELETE FROM homework_progress
+        WHERE character_id IN (SELECT id FROM characters WHERE owner_name = ?)
+          AND ((task_key = 'abyss' AND week_start = ?)
+            OR (task_key <> 'abyss' AND week_start = ?))`).bind(nickname, abyssPeriod, week),
+      env.DB.prepare(`DELETE FROM homework_custom_progress
+        WHERE character_id IN (SELECT id FROM characters WHERE owner_name = ?)
+          AND task_id IN (SELECT id FROM homework_custom_tasks WHERE owner_name = ?)`).bind(nickname,nickname),
+      // Preserve nightmare counts. Reset only daily-dungeon remaining uses to 21.
+      env.DB.prepare(`INSERT INTO homework_custom_count_progress
+        (task_id,character_id,week_start,count,updated_at)
+        SELECT t.id,c.id,?,21,?
+        FROM homework_custom_tasks t
+        JOIN characters c ON c.owner_name=t.owner_name
+        WHERE t.owner_name=? AND t.title='일일 던전' AND t.task_type='count'
+        ON CONFLICT(task_id,character_id,week_start)
+        DO UPDATE SET count=21,updated_at=excluded.updated_at`).bind(week,Date.now(),nickname)
+    ]);
+    const resetCount = results.reduce((sum,result) => sum + Number(result.meta?.changes ?? 0),0);
+    return json({success:true,weekStart:week,resetCount});
   }
 
   if (method === 'POST' && path === '/api/homework/order') {

@@ -1228,7 +1228,7 @@ function setupHomeworkTaskCreator() {
     button.addEventListener('click', () => {
       const title = button.dataset.presetTask;
       const maxCount = Number(button.dataset.maxCount);
-      void createTask(title,'count',maxCount);
+      void createTask(title,button.dataset.taskType || 'count',maxCount);
     });
   });
 
@@ -1269,7 +1269,7 @@ function renderHomework() {
   const completed = rows.reduce((sum, ch) => sum + taskColumns.filter(task => {
     if (task.type === 'count') {
       const count = ch.customCounts?.[task.key];
-      return task.label === '일일 던전' ? Number(count ?? task.maxCount) <= 0 : Number(count || 0) >= Number(task.maxCount || 0);
+      return ['악몽','슈고'].includes(task.label) ? Number(count ?? task.maxCount) <= 0 : Number(count || 0) >= Number(task.maxCount || 0);
     }
     return task.custom ? (ch.customCompleted || []).includes(task.key) : (ch.completed || []).includes(task.key);
   }).length, 0);
@@ -1284,6 +1284,11 @@ function renderHomework() {
   odCountdown.className = 'od1-next-recovery-countdown';
   $('hwWeekLabel').append(' · ', odCountdown);
   updateOd1NextRecoveryCountdown();
+  const refillCountdown=document.createElement('span');
+  refillCountdown.id='homeworkRefillCountdown';
+  refillCountdown.className='od1-next-recovery-countdown';
+  $('hwWeekLabel').append(' · ',refillCountdown);
+  updateHomeworkRefillCountdown();
   const tbody = $('hwRows');
   homeworkOdLiveUpdaters = [];
   tbody.replaceChildren();
@@ -1519,8 +1524,8 @@ function renderHomework() {
         cell.className = 'hw-count-cell';
         const maxCount = Number(task.maxCount || 0);
         const storedCount = character.customCounts?.[task.key];
-        const isDailyDungeon = task.label === '일일 던전';
-        let currentCount = storedCount == null ? (isDailyDungeon ? maxCount : 0) : Number(storedCount);
+        const isRefillTask = ['악몽','슈고'].includes(task.label);
+        let currentCount = storedCount == null ? (isRefillTask ? maxCount : 0) : Number(storedCount);
         const controls = document.createElement('div');
         controls.className = 'hw-count-controls';
         const minus = document.createElement('button');
@@ -1717,5 +1722,15 @@ function updateOd1NextRecoveryCountdown() {
   const atKst = new Date((next + 9 * 3600) * 1000).toISOString().slice(11, 16);
   target.textContent = `오드1 다음 자연회복까지 ${hh}:${mm}:${ss} (${atKst} 예정)`;
 }
-// No network calls, D1 writes, or cron; only update the visible label.
-setInterval(updateOd1NextRecoveryCountdown, 1000);
+function updateHomeworkRefillCountdown(){
+  const target=$('homeworkRefillCountdown');
+  if(!target||!target.isConnected||activeSection!=='homework')return;
+  const kst=new Date(Date.now()+9*3600000),next=new Date(kst);
+  next.setUTCHours(kst.getUTCHours()<5?5:kst.getUTCHours()<17?17:29,0,0,0);
+  const seconds=Math.max(0,Math.floor((next-kst)/1000));
+  const hh=String(Math.floor(seconds/3600)).padStart(2,'0'),mm=String(Math.floor(seconds%3600/60)).padStart(2,'0'),ss=String(seconds%60).padStart(2,'0');
+  const at=String(next.getUTCHours()%24).padStart(2,'0')+':00';
+  target.textContent=`악몽·슈고 다음 충전까지 ${hh}:${mm}:${ss} (${at} 예정)`;
+}
+// Server persists refill counts; these timers only update the labels.
+setInterval(()=>{updateOd1NextRecoveryCountdown();updateHomeworkRefillCountdown();},1000);

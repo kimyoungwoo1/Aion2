@@ -1671,8 +1671,8 @@ $('hwReset').addEventListener('click', async () => {
   }
   const accepted = window.confirm(
     `${user.nickname} 님의 캐릭터 ${list.length}명에 저장된 숙제 현황을 초기화할까요?\n\n` +
-    '기본·직접 추가 숙제의 완료 기록과 일일 던전 횟수가 초기화됩니다.\n' +
-    '악몽 횟수는 변경하지 않으며, 일일 던전은 캐릭터별 21회로 복구됩니다.\n' +
+    '기본·직접 추가 숙제의 완료 기록이 초기화됩니다.\n' +
+    '악몽·슈고 충전 횟수는 변경하지 않습니다.\n' +
     '직접 추가한 숙제 목록 자체는 삭제되지 않습니다.\n' +
     '오드1·오드2, 멤버십, 캐릭터 정렬 순서는 유지됩니다.\n' +
     '초기화한 기록은 자동 복원되지 않습니다.'
@@ -1684,7 +1684,7 @@ $('hwReset').addEventListener('click', async () => {
   try {
     const result = await api('/api/homework/reset', 'POST', {confirm:true});
     await loadHomework();
-    $('hwMessage').textContent = `초기화 완료: 완료 기록을 초기화하고 일일 던전을 21회로 복구했습니다. 악몽 횟수와 숙제 목록, 오드, 멤버십, 정렬 순서는 유지됩니다.`;
+    $('hwMessage').textContent = `초기화 완료: 완료 기록을 초기화했습니다. 악몽·슈고 충전 횟수와 숙제 목록, 오드, 멤버십, 정렬 순서는 유지됩니다.`;
   } catch (error) {
     $('hwMessage').textContent = `현황 초기화 실패: ${error.message}`;
   } finally {

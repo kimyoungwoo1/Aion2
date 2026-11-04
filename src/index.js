@@ -391,7 +391,7 @@ async function homeworkApi(request, env, path, user, now) {
         if (Array.isArray(parsed)) order = parsed.filter(Number.isSafeInteger);
       } catch { /* 예전 잘못된 순서 데이터가 있으면 자동 정렬로 대체 */ }
     }
-    const custom = await getCustomHomeworkData(env,nickname,characters,week);
+    const custom = await getCustomHomeworkData(env,nickname,characters,week,now);
     return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order,...custom});
   }
 
@@ -413,15 +413,8 @@ async function homeworkApi(request, env, path, user, now) {
       env.DB.prepare(`DELETE FROM homework_custom_progress
         WHERE character_id IN (SELECT id FROM characters WHERE owner_name = ?)
           AND task_id IN (SELECT id FROM homework_custom_tasks WHERE owner_name = ?)`).bind(nickname,nickname),
-      // Preserve nightmare counts. Reset only daily-dungeon remaining uses to 21.
-      env.DB.prepare(`INSERT INTO homework_custom_count_progress
-        (task_id,character_id,week_start,count,updated_at)
-        SELECT t.id,c.id,?,21,?
-        FROM homework_custom_tasks t
-        JOIN characters c ON c.owner_name=t.owner_name
-        WHERE t.owner_name=? AND t.title='일일 던전' AND t.task_type='count'
-        ON CONFLICT(task_id,character_id,week_start)
-        DO UPDATE SET count=21,updated_at=excluded.updated_at`).bind(week,Date.now(),nickname)
+      // Daily dungeon is a toggle now; its completion rows were cleared above.
+      // Refill counts for nightmare and Shuggo are intentionally preserved.
     ]);
     const resetCount = results.reduce((sum,result) => sum + Number(result.meta?.changes ?? 0),0);
     return json({success:true,weekStart:week,resetCount});

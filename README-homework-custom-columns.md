@@ -1,65 +1,41 @@
-# Aion2 homework: personal column order and non-resetting custom tasks
+# 아이온2 숙제 열 정렬 / 추가 기능 - 배포 누락 복구
 
-## Features
-
-- The default column order is unchanged: abyss, awakening, rudra, invasion,
-  muspel, deltras, trials, od purchase & crafting.
-- Drag the grip in each homework COLUMN HEADER to reorder columns. This is
-  separate from the existing drag handles for CHARACTER ROWS.
-- Column order is saved in Cloudflare D1 by the authenticated login nickname.
-  Another nickname's column order is unaffected. Refreshes, deployments, and
-  weekly resets do not delete the preference.
-- The "Add Homework" button opens a dialog asking for a task name. Each
-  newly created task appears immediately after od purchase & crafting,
-  before the membership checkbox. Up to 20 extra tasks per nickname.
-- A custom task gets completion buttons independently for every character
-  registered under that nickname. Its completion is persistent: neither the
-  Wednesday weekly reset nor the manual "Reset Status" action deletes it.
-- Custom tasks are private to the login nickname; they are NOT shared with
-  other nicknames. Built-in weekly homework continues its normal resets.
-- The original character sorting, Od1/2, membership, auto recovery, admin
-  audit, content schedule, inquiry board, and party assignments are retained.
-
-## Apply in /workspaces/Aion2
-
-Upload the ZIP into the project root, then run:
+이 ZIP은 **수정 소스 파일 전체를 덮어쓰는 ZIP이 아닙니다**. 사용자의 현재 `public/app.js`, `public/index.html`, `src/index.js`를 보존하면서 패치 스크립트가 필요한 코드만 추가합니다. 이전 ZIP에서 압축만 해제하고 `wrangler deploy`를 실행하면 화면이 바뀌지 않은 이유를 해결하기 위해 **적용+검사+마이그레이션+배포**를 한 명령으로 묶었습니다.
 
 ```bash
-unzip -o Aion2_Homework_Custom_Columns.zip
-python3 scripts/add-homework-custom-columns.py
-node --check src/index.js
-node --check public/app.js
-node tests/test-homework-custom-columns.mjs
-python3 tests/test-homework-custom-migration.py
-node tests/test-homework-custom-live.mjs
-npx wrangler d1 migrations apply aion2-db --remote && npx wrangler deploy
+unzip -o Aion2_Homework_Custom_Columns_Repair.zip
+bash scripts/install-homework-custom-columns.sh --deploy
 ```
 
-The Python patch is deliberately non-destructive. It only changes matching
-snippets of the EXISTING files (src/index.js, public/app.js, index.html)
-and adds a small extra API module and new migration. If the expected source
-shapes have changed, the script fails before modifying existing app files.
+스크립트는 현재 파일을 실제로 고쳤는지 검사하고, `app.js` 캐시 버전 문자열을 갱신하며, 문법/기능 테스트를 수행한 후 **D1 성공 시에만** Worker를 배포합니다. 원격 페이지의 `숙제 추가` 버튼 존재 여부까지 검사합니다. 중간에 실패하면 배포를 진행하지 않습니다.
 
-This migration is ADDITIVE ONLY; it does not change the homework_progress
-or existing Od storage. The actual D1 migration must complete successfully
-before deploying the new Worker code.
+패치만 확인하려면:
+```bash
+bash scripts/install-homework-custom-columns.sh --check-only
+```
 
-Commit the updated files to avoid an older GitHub deployment overwriting the
-live site:
-
+GitHub에서 이전 버전을 자동 배포하지 않도록 확인 후 커밋/푸시합니다:
 ```bash
 git add public/index.html public/app.js src/index.js src/homework-custom-api.js \
-  migrations/0024_homework_custom_columns.sql scripts/add-homework-custom-columns.py \
-  tests README-homework-custom-columns.md
-git diff --cached --stat
-git commit -m "Add persistent per-nickname homework columns and custom tasks"
+  migrations/0024_homework_custom_columns.sql scripts tests README-homework-custom-columns.md
+git commit -m "Install persistent homework columns"
 git push origin main
 ```
 
-Note: this application's shared access-code login allows people to choose
-any nickname. The per-nickname isolation is NOT verified account ownership;
-a person choosing the same nickname can access its data. Stronger identity
-verification is required for real access control.
+## 실제 반영 여부 확인
 
-New tasks are persistent and this version does not add task deletion, because
-accidental deletion could destroy recorded completion data.
+```bash
+grep -n 'id="hwAddTask"' public/index.html
+curl -fsSL "https://aion2.ksmsy1.workers.dev/?check=$(date +%s)" | grep -o 'id="hwAddTask"'
+```
+
+위 두 번째 명령에서 버튼 ID가 보이면 운영 서버 HTML까지 적용된 상태입니다. 그런데도 브라우저에서 안 보이면 `Ctrl+Shift+R`로 캐시를 무시하고 새로고침하세요.
+
+## 기능/데이터
+
+- 기본 숙제 8열 순서는 현재 순서 그대로 시작합니다.
+- 각 숙제의 `⠿` 손잡이로 열 위치를 변경하고 **로그인 닉네임별로 D1에 영구 저장**합니다.
+- `숙제 추가` 버튼으로 새 항목을 만들고 오드구매&제작 오른쪽에 배치합니다.
+- 새 숙제의 완료 상태는 수요일 초기화와 `현황 초기화` 모두에서 제외됩니다.
+- 기존 숙제·오드·멤버십·파티·관리자 이력 데이터는 삭제하지 않습니다.
+- 해당 닉네임으로 로그인하면 그 닉네임의 데이터에 접근할 수 있는 기존 공용 로그인 구조는 그대로 유지됩니다.

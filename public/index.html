@@ -357,6 +357,7 @@
     .hw-count-input[type=number] {-moz-appearance:textfield;}
     .hw-count-input:disabled {opacity:.55;}
     .hw-count-limit {color:#fff;font-size:12px;font-variant-numeric:tabular-nums;}
+    .hw-count-error {display:block;margin-top:4px;color:#ff9b9b;font-size:11px;line-height:1.35;text-align:center;}
     .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
 </style>
   <link rel="stylesheet" href="/content-schedule.css">
@@ -658,7 +659,7 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=homework-count-editable-20261104-v1"></script>
+  <script type="module" src="/app.js?v=homework-count-validation-20261104-v2"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
   <script type="module" src="/inquiries.js"></script>
   <dialog id="hwAddTaskDialog" class="hw-custom-dialog">
@@ -667,8 +668,8 @@
       <section class="hw-dialog-section">
         <h4>&#xAE30;&#xBCF8; &#xC219;&#xC81C; &#xCD94;&#xAC00;</h4>
         <div class="hw-preset-grid">
-          <button type="button" class="secondary" data-preset-task="악몽" data-max-count="14">악몽 · 0~14회</button>
-          <button type="button" class="secondary" data-preset-task="일일 던전" data-max-count="21">일일 던전 · 0~21회</button>
+          <button type="button" class="secondary" data-preset-task="악몽" data-max-count="14">악몽</button>
+          <button type="button" class="secondary" data-preset-task="일일 던전" data-max-count="21">일일 던전</button>
         </div>
       </section>
       <section class="hw-dialog-section">

@@ -1522,13 +1522,33 @@ function renderHomework() {
         plus.className = 'hw-count-step';
         plus.textContent = '+';
         plus.disabled = currentCount >= maxCount;
+        const countError = document.createElement('span');
+        countError.className = 'hw-count-error';
+        countError.hidden = true;
+        countError.setAttribute('role', 'alert');
+        const showCountError = () => {
+          countError.textContent = `횟수를 잘못 입력했습니다. 0~${maxCount}회로 입력해 주세요.`;
+          countError.hidden = false;
+          value.setAttribute('aria-invalid', 'true');
+        };
+        const clearCountError = () => {
+          countError.textContent = '';
+          countError.hidden = true;
+          value.removeAttribute('aria-invalid');
+        };
         const setControlsDisabled = disabled => {
           minus.disabled = disabled || currentCount <= 0;
           plus.disabled = disabled || currentCount >= maxCount;
           value.disabled = disabled;
         };
         const saveCount = async next => {
-          if (!Number.isInteger(next) || next < 0 || next > maxCount || next === currentCount) {
+          if (!Number.isInteger(next) || next < 0 || next > maxCount) {
+            value.value = String(currentCount);
+            showCountError();
+            return;
+          }
+          clearCountError();
+          if (next === currentCount) {
             value.value = String(currentCount);
             return;
           }
@@ -1550,14 +1570,16 @@ function renderHomework() {
         const commitTypedCount = () => {
           if (value.value.trim() === '') {
             value.value = String(currentCount);
+            showCountError();
             return;
           }
           const next = Number(value.value);
           if (!Number.isInteger(next) || next < 0 || next > maxCount) {
             value.value = String(currentCount);
-            $('hwMessage').textContent = `${task.label} 횟수는 0~${maxCount} 사이의 정수로 입력해 주세요.`;
+            showCountError();
             return;
           }
+          clearCountError();
           void saveCount(next);
         };
         value.addEventListener('change', commitTypedCount);
@@ -1571,10 +1593,10 @@ function renderHomework() {
             value.blur();
           }
         });
-        minus.addEventListener('click',() => { if (currentCount > 0) void saveCount(currentCount - 1); });
-        plus.addEventListener('click',() => { if (currentCount < maxCount) void saveCount(currentCount + 1); });
+        minus.addEventListener('click',() => { clearCountError(); if (currentCount > 0) void saveCount(currentCount - 1); });
+        plus.addEventListener('click',() => { clearCountError(); if (currentCount < maxCount) void saveCount(currentCount + 1); });
         controls.append(minus,value,limit,plus);
-        cell.append(controls);
+        cell.append(controls,countError);
         continue;
       }
       const button = document.createElement('button');

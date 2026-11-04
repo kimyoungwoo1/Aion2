@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>변경 이력 · 아이온2 관리</title>
+  <link rel="stylesheet" href="/admin.css?v=20261104">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">✦ 아이온2 관리</a>
+      <div class="top-actions"><span class="admin-label">관리자 · 변경 이력</span><a class="button muted-btn" href="/">메인으로</a></div>
+    </div>
+  </header>
+  <main>
+    <div class="heading"><div><h1>변경 이력</h1><p>사이트의 사용자 변경 내역을 관리자만 확인할 수 있습니다.</p></div><button id="adminLogout" class="button muted-btn" hidden>관리자 잠금</button></div>
+    <section class="card unlock" id="unlockPanel">
+      <h2>관리자 인증</h2>
+      <p>일반 사이트에 로그인한 뒤, 별도로 설정한 관리자 비밀번호로 잠금을 해제하세요.</p>
+      <form id="adminLoginForm">
+        <label for="adminPassword">관리자 비밀번호</label>
+        <input id="adminPassword" type="password" autocomplete="current-password" minlength="12" maxlength="256" required placeholder="관리자 비밀번호">
+        <button class="button primary" type="submit" id="adminLoginSubmit">이력 확인</button>
+      </form>
+      <p class="message" id="unlockMessage" role="status"></p>
+    </section>
+    <section class="card history" id="historyPanel" hidden>
+      <div class="filters">
+        <label>분류
+          <select id="categoryFilter">
+            <option value="">전체 기능</option><option value="character">캐릭터</option>
+            <option value="sanctuary">성역 일정·명단</option><option value="party">파티 편성</option>
+            <option value="homework">숙제</option><option value="od">오드·멤버십</option>
+            <option value="content">컨텐츠 일정표</option><option value="inquiry">문의사항</option>
+            <option value="other">기타</option>
+          </select>
+        </label>
+        <label>로그인 닉네임
+          <input id="actorFilter" maxlength="30" placeholder="전체 사용자">
+        </label>
+        <button class="button primary" id="searchHistory" type="button">검색</button>
+        <button class="button muted-btn" id="reloadHistory" type="button">새로고침</button>
+      </div>
+      <p id="historyMessage" class="message" role="status"></p>
+      <div class="tablewrap">
+        <table aria-label="변경 이력">
+          <thead><tr><th>변경 시각 (KST)</th><th>닉네임</th><th>기능</th><th>변경 내용</th><th>대상</th><th>상세</th></tr></thead>
+          <tbody id="historyRows"></tbody>
+        </table>
+      </div>
+      <div class="pager"><span class="hint">새로운 기록부터 표시합니다.</span><button id="moreHistory" class="button muted-btn" type="button" hidden>이전 기록 더 보기</button></div>
+    </section>
+    <p class="footer-note">이력에는 로그인할 때 사용한 닉네임이 표시됩니다. 공용 접속 코드와 자유 닉네임 방식에서는 실제 사람의 신원까지 보장하지 않습니다. 이 기능을 적용한 시점 이후의 변경만 기록됩니다.</p>
+  </main>
+  <script src="/admin.js?v=20261104" type="module"></script>
+</body>
+</html>

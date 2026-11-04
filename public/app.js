@@ -1496,39 +1496,84 @@ function renderHomework() {
       const cell = row.insertCell();
       if (task.type === 'count') {
         cell.className = 'hw-count-cell';
-        const count = Number(character.customCounts?.[task.key] || 0);
+        let currentCount = Number(character.customCounts?.[task.key] || 0);
+        const maxCount = Number(task.maxCount || 0);
         const controls = document.createElement('div');
         controls.className = 'hw-count-controls';
         const minus = document.createElement('button');
         minus.type = 'button';
         minus.className = 'hw-count-step';
         minus.textContent = '−';
-        minus.disabled = count <= 0;
-        const value = document.createElement('span');
-        value.className = 'hw-count-value';
-        value.textContent = `${count}/${task.maxCount}`;
+        minus.disabled = currentCount <= 0;
+        const value = document.createElement('input');
+        value.type = 'number';
+        value.min = '0';
+        value.max = String(maxCount);
+        value.step = '1';
+        value.inputMode = 'numeric';
+        value.className = 'hw-count-input';
+        value.value = String(currentCount);
+        value.setAttribute('aria-label', `${character.name} ${task.label} 횟수 (0~${maxCount})`);
+        const limit = document.createElement('span');
+        limit.className = 'hw-count-limit';
+        limit.textContent = `/${maxCount}`;
         const plus = document.createElement('button');
         plus.type = 'button';
         plus.className = 'hw-count-step';
         plus.textContent = '+';
-        plus.disabled = count >= task.maxCount;
+        plus.disabled = currentCount >= maxCount;
+        const setControlsDisabled = disabled => {
+          minus.disabled = disabled || currentCount <= 0;
+          plus.disabled = disabled || currentCount >= maxCount;
+          value.disabled = disabled;
+        };
         const saveCount = async next => {
-          minus.disabled = true; plus.disabled = true;
+          if (!Number.isInteger(next) || next < 0 || next > maxCount || next === currentCount) {
+            value.value = String(currentCount);
+            return;
+          }
+          setControlsDisabled(true);
           $('hwMessage').textContent = `${character.name} · ${task.label} 저장 중...`;
           try {
             await api('/api/homework/custom-count','POST',{
               characterId:character.id,taskId:task.id,count:next
             });
+            currentCount = next;
             if (activeSection === 'homework') await loadHomework();
-            $('hwMessage').textContent = `${character.name} · ${task.label} ${next}/${task.maxCount}회 저장 완료`;
+            $('hwMessage').textContent = `${character.name} · ${task.label} ${next}/${maxCount}회 저장 완료`;
           } catch(error) {
+            value.value = String(currentCount);
             $('hwMessage').textContent = error.message;
-            minus.disabled = count <= 0; plus.disabled = count >= task.maxCount;
+            setControlsDisabled(false);
           }
         };
-        minus.addEventListener('click',() => { if (count > 0) void saveCount(count - 1); });
-        plus.addEventListener('click',() => { if (count < task.maxCount) void saveCount(count + 1); });
-        controls.append(minus,value,plus);
+        const commitTypedCount = () => {
+          if (value.value.trim() === '') {
+            value.value = String(currentCount);
+            return;
+          }
+          const next = Number(value.value);
+          if (!Number.isInteger(next) || next < 0 || next > maxCount) {
+            value.value = String(currentCount);
+            $('hwMessage').textContent = `${task.label} 횟수는 0~${maxCount} 사이의 정수로 입력해 주세요.`;
+            return;
+          }
+          void saveCount(next);
+        };
+        value.addEventListener('change', commitTypedCount);
+        value.addEventListener('keydown', event => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            value.blur();
+          }
+          if (event.key === 'Escape') {
+            value.value = String(currentCount);
+            value.blur();
+          }
+        });
+        minus.addEventListener('click',() => { if (currentCount > 0) void saveCount(currentCount - 1); });
+        plus.addEventListener('click',() => { if (currentCount < maxCount) void saveCount(currentCount + 1); });
+        controls.append(minus,value,limit,plus);
         cell.append(controls);
         continue;
       }

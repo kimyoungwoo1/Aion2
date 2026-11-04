@@ -1,0 +1,119 @@
+/** Separate, server-authorized administrator login and audit reader. */
+const ADMIN_AGE = 60 * 60;
+const MAX_FAILURES = 5;
+const LOCK_SECONDS = 15 * 60;
+const encoder = new TextEncoder();
+
+async function hash(text) {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(text));
+  return Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, '0')).join('');
+}
+async function constantEqual(a, b) {
+  const aHash = await hash(a), bHash = await hash(b);
+  let mismatch = 0;
+  for (let i = 0; i < aHash.length; i++) mismatch |= aHash.charCodeAt(i) ^ bHash.charCodeAt(i);
+  return mismatch === 0;
+}
+function cookieValue(request, name) {
+  const cookie = request.headers.get('Cookie') || '';
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? match[1] : '';
+}
+function adminCookie(request, value, seconds) {
+  const hostname = new URL(request.url).hostname;
+  const secure = hostname === 'localhost' || hostname === '127.0.0.1' ? '' : '; Secure';
+  return `aion2_admin=${value}; Path=/api/admin; HttpOnly; SameSite=Strict; Max-Age=${seconds}${secure}`;
+}
+function token() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
+}
+function configured(env) {
+  return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length >= 12 &&
+    env.ADMIN_PASSWORD !== env.ACCESS_CODE;
+}
+async function adminAuthorized(request, env, user) {
+  if (!user) return false;
+  const adminToken = cookieValue(request, 'aion2_admin');
+  const mainToken = cookieValue(request, 'aion2_session');
+  if (!/^[0-9a-f]{64}$/.test(adminToken) || !/^[0-9a-f]{64}$/.test(mainToken)) return false;
+  const row = await env.DB.prepare(`SELECT nickname FROM admin_sessions
+    WHERE token_hash=? AND user_session_hash=? AND expires_at>?`)
+    .bind(await hash(adminToken), await hash(mainToken), Math.floor(Date.now()/1000)).first();
+  return !!row && row.nickname === user.nickname;
+}
+
+export async function handleAdminApi(request, env, path, user, json, readJson) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!configured(env)) return json({ error: 'ADMIN_PASSWORD Secret을 12자 이상으로 설정해 주세요.' }, 503);
+  if (path === '/api/admin/login' && request.method === 'POST') {
+    const body = await readJson(request);
+    if (typeof body.password !== 'string' || body.password.length > 256) {
+      return json({error:'관리자 비밀번호를 확인해 주세요.'}, 400);
+    }
+    // Do not store the IP or password in plaintext. Throttle failures per source.
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const fingerprint = await hash(`admin:${ip}:${env.ADMIN_PASSWORD}`);
+    const previous = await env.DB.prepare('SELECT failures,locked_until,updated_at FROM admin_login_throttle WHERE fingerprint=?')
+      .bind(fingerprint).first();
+    if (Number(previous?.locked_until || 0) > now) return json({error:'시도가 너무 많습니다. 15분 후 다시 시도해 주세요.'},429);
+    if (!(await constantEqual(body.password, env.ADMIN_PASSWORD))) {
+      const failures = previous && now - previous.updated_at < LOCK_SECONDS ? previous.failures + 1 : 1;
+      const lockedUntil = failures >= MAX_FAILURES ? now + LOCK_SECONDS : 0;
+      await env.DB.prepare(`INSERT INTO admin_login_throttle(fingerprint,failures,locked_until,updated_at)
+        VALUES(?,?,?,?) ON CONFLICT(fingerprint) DO UPDATE SET
+        failures=excluded.failures,locked_until=excluded.locked_until,updated_at=excluded.updated_at`)
+        .bind(fingerprint,failures,lockedUntil,now).run();
+      return json({error:'관리자 비밀번호가 올바르지 않습니다.'},401);
+    }
+    const mainToken = cookieValue(request,'aion2_session');
+    if (!/^[0-9a-f]{64}$/.test(mainToken)) return json({error:'일반 로그인이 필요합니다.'},401);
+    const adminToken = token();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM admin_login_throttle WHERE fingerprint=?').bind(fingerprint),
+      env.DB.prepare(`INSERT INTO admin_sessions(token_hash,user_session_hash,nickname,created_at,expires_at)
+        VALUES(?,?,?,?,?)`).bind(await hash(adminToken),await hash(mainToken),user.nickname,now,now+ADMIN_AGE)
+    ]);
+    return json({success:true,expiresAt:now+ADMIN_AGE},200,{'Set-Cookie':adminCookie(request,adminToken,ADMIN_AGE)});
+  }
+  if (path === '/api/admin/status' && request.method === 'GET') {
+    return json({authorized:await adminAuthorized(request,env,user)});
+  }
+  if (path === '/api/admin/logout' && request.method === 'POST') {
+    const old = cookieValue(request,'aion2_admin');
+    if (/^[0-9a-f]{64}$/.test(old)) {
+      await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash=?').bind(await hash(old)).run();
+    }
+    return json({success:true},200,{'Set-Cookie':adminCookie(request,'',0)});
+  }
+  if (!(await adminAuthorized(request,env,user))) return json({error:'관리자 인증이 필요합니다.'},403);
+  if (path === '/api/admin/history' && request.method === 'GET') {
+    const url = new URL(request.url);
+    const category = (url.searchParams.get('category') || '').trim();
+    const actor = (url.searchParams.get('actor') || '').trim().slice(0,30);
+    const cursor = Number(url.searchParams.get('before') || 0);
+    const limit = 30;
+    const categories = new Set(['character','homework','od','sanctuary','party','content','inquiry','other']);
+    if (category && !categories.has(category)) return json({error:'잘못된 필터입니다.'},400);
+    if (!Number.isSafeInteger(cursor) || cursor < 0) return json({error:'잘못된 페이지입니다.'},400);
+    let sql = `SELECT id,occurred_at,actor_nickname,category,action,target,summary,
+      details_json,previous_json,current_json FROM admin_audit_events WHERE 1=1`;
+    const args = [];
+    if (category) { sql += ' AND category=?'; args.push(category); }
+    if (actor) {
+      sql += " AND actor_nickname LIKE ? ESCAPE '\\'";
+      args.push('%' + actor.replace(/[\\%_]/g,'\\$&') + '%');
+    }
+    if (cursor) { sql += ' AND id<?'; args.push(cursor); }
+    sql += ' ORDER BY id DESC LIMIT ?'; args.push(limit+1);
+    const result = await env.DB.prepare(sql).bind(...args).all();
+    const hasMore = result.results.length > limit;
+    const events = result.results.slice(0,limit).map(row => ({
+      id: row.id, occurredAt:row.occurred_at, actor:row.actor_nickname, category:row.category,
+      action:row.action,target:row.target,summary:row.summary,
+      details: parse(row.details_json),before:parse(row.previous_json),after:parse(row.current_json)
+    }));
+    return json({events,hasMore,nextCursor:hasMore ? events[events.length-1].id : null});
+  }
+  return json({error:'지원하지 않는 관리자 기능입니다.'},404);
+}
+function parse(value) { try { return value ? JSON.parse(value) : null; } catch { return null; } }

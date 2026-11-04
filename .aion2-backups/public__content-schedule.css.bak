@@ -1,0 +1,70 @@
+/* AION2_CONTENT_SCHEDULE_V1 - matches supplied dark reference chart */
+body.content-schedule-mode main { max-width: 1510px; }
+.cs-wrap { --cs-border:#252a30; --cs-grid:#282d33; --cs-ink:#edf0f5; color:var(--cs-ink); padding:29px 26px 32px; background:#0b0e12; border:1px solid #252a30; border-radius:15px; box-shadow:0 12px 30px #0003; }
+.cs-wrap .cs-page-header { display:flex; align-items:center; justify-content:space-between; gap:18px; background:transparent; border:0; padding:4px 0 22px; margin:0 0 8px; border-bottom:1px solid #2a3037; }
+.cs-wrap .cs-page-header h1 { font-size:35px; margin:0 0 6px; letter-spacing:-.035em; }
+.cs-wrap .cs-page-header p { color:#aeb5c0; margin:0; font-size:14px; }
+.cs-logo { font-weight:1000; letter-spacing:-.075em; font-family:Georgia,'Times New Roman',serif; font-style:italic; color:#9dddfa; font-size:54px; line-height:1; text-shadow:0 2px 1px #172c56, 0 0 20px #3170a8; white-space:nowrap; }
+.cs-logo span { color:#dceafa; font-size:1.1em; }
+.cs-section-heading { display:flex; align-items:center; gap:10px; margin:23px 0 13px; border-left:3px solid #82cce6; padding-left:10px; }
+.cs-section-heading h2 { font-size:21px; font-weight:750; margin:0; color:#e5e9ee; }
+.cs-legend { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:7px; margin:15px 0 21px; }
+.cs-event { display:inline-flex; align-items:center; justify-content:center; gap:3px; min-width:0; border-radius:5px; padding:5px 6px; font-size:13px; font-weight:750; line-height:1.2; text-align:center; white-space:nowrap; }
+.cs-event > span { font-size:1.05em; }
+.cs-sun { background:#163027; color:#70c79c; }
+.cs-agro { background:#33251d; color:#e3a274; }
+.cs-artifact { background:#30243f; color:#c9afe7; }
+.cs-boss { background:#1d3135; color:#91ced9; }
+.cs-nahma { background:#38252d; color:#e0a2b4; }
+.cs-outland { background:#14323d; color:#8dd1e6; }
+.cs-rift { background:#3b3221; color:#e3c178; }
+.cs-riftwar { background:#202d43; color:#a6c1ef; }
+.cs-scroll { width:100%; overflow-x:auto; border-radius:9px; border:1px solid var(--cs-border); }
+.cs-week-table, .cs-group-table, .cs-server-card table { background:#111518; border-collapse:collapse; border-spacing:0; width:100%; table-layout:fixed; }
+.cs-week-table { min-width:900px; }
+.cs-week-table th,.cs-week-table td { padding:5px 3px; text-align:center; border:1px solid var(--cs-grid); font-size:14px; }
+.cs-week-table thead th { background:#1b2026; color:#d8dfe7; padding:12px 5px; font-size:14px; }
+.cs-week-table thead .cs-day-2 { color:#f2cd7c; background:#302a1d; }
+.cs-week-table thead .cs-day-5 { color:#a2cbf7; background:#1c3146; }
+.cs-week-table thead .cs-day-6 { color:#ebb5c3; background:#36222e; }
+.cs-day small { display:block; margin-top:2px; font-size:10px; }
+.cs-week-table th.cs-time { width:88px; background:#1b2026; color:#d9dee5; font-weight:750; font-size:14px; line-height:1.25; }
+.cs-week-table td { background:#121619; min-height:49px; vertical-align:middle; height:49px; }
+.cs-week-table td .cs-event { width:100%; padding:6px 2px; margin:1px 0; white-space:normal; }
+.cs-week-table tr:nth-child(even) td { background:#151a1e; }
+.cs-week-table .cs-full-event { background:#132a32 !important; }
+.cs-week-table .cs-full-event .cs-event { background:transparent; font-size:15px; }
+.cs-dash { color:#667482; }
+.cs-guides { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
+.cs-guide-card { text-align:center; background:#121619; border:1px solid #2a3035; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; min-height:169px; }
+.cs-guide-heading .cs-event { display:flex; width:100%; border-radius:0; padding:10px 3px; font-size:15px; }
+.cs-guide-card strong { font-size:15px; font-weight:750; margin:11px 5px 5px; }
+.cs-guide-card p { margin:3px 7px; font-size:14px; line-height:1.7; }
+.cs-guide-card small { margin:auto 4px 6px; font-size:11px; color:#b5bdc7; }
+.cs-guide-card:nth-child(5) small { background:#3b2630; border-radius:4px; color:#efb8c1; padding:3px 6px; }
+.cs-group-table { min-width:610px; }
+.cs-group-table th,.cs-group-table td { border:1px solid var(--cs-grid); padding:10px; text-align:center; font-size:17px; }
+.cs-group-table th { color:#d2dce7; background:#1d2228; font-size:15px; }
+.cs-group-table th:nth-child(3) { background:#1c2b3d; color:#afc8f1; }
+.cs-group-table th:nth-child(4) { background:#30291d; color:#e0c077; }
+.cs-group-table th:nth-child(5) { background:#302338; color:#d6b6e2; }
+.cs-group-table td:first-child { padding:4px; width:25%; }
+.cs-group-table td:first-child .cs-event { display:flex; padding:9px 12px; font-size:16px; }
+.cs-group-table td:nth-child(2) { font-weight:700; }
+.cs-group-table td:nth-child(n+3) { font-size:20px; font-weight:700; }
+.cs-matches-head { justify-content:space-between; flex-wrap:wrap; }
+.cs-matches-head p { font-size:13px; color:#c3ccd6; margin:0; }
+.cs-server-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; }
+.cs-server-card { overflow:hidden; border-radius:10px; border:1px solid #2b3036; }
+.cs-server-card h3 { padding:12px 5px; text-align:center; font-size:19px; margin:0; font-weight:800; }
+.cs-server-card h3.cs-group-1 { background:#1d2b3c; color:#acc8f0; }
+.cs-server-card h3.cs-group-2 { background:#332c1d; color:#e4c374; }
+.cs-server-card h3.cs-group-3 { background:#2b2235; color:#d9b8e9; }
+.cs-server-card th,.cs-server-card td { text-align:center; font-size:13px; padding:9px 6px; border:1px solid #2a2e34; white-space:normal; }
+.cs-server-card th { background:#1e2329; color:#abb6c6; }
+.cs-server-card tbody tr:nth-child(even) { background:#1a1f24; }
+.cs-server-card .cs-server-num { width:18%; color:#afbac9; }
+.cs-reference-note { color:#92a2b4; font-size:12px; margin:18px 0 0; }
+@media(max-width:1100px) { .cs-legend {grid-template-columns:repeat(4,minmax(0,1fr))} .cs-guides {grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media(max-width:750px) { .cs-wrap {padding:19px 11px;} .cs-logo {font-size:34px;} .cs-wrap .cs-page-header h1 {font-size:25px;} .cs-server-grid {grid-template-columns:1fr;} .cs-guides {grid-template-columns:repeat(2,minmax(0,1fr))} .cs-legend {grid-template-columns:repeat(2,minmax(0,1fr))} .cs-week-table{min-width:870px;} }
+@media(max-width:410px) { .cs-guides {grid-template-columns:1fr;} .cs-logo {font-size:28px;} }

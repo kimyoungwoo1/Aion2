@@ -351,7 +351,12 @@
     .hw-count-controls {display:flex;align-items:center;justify-content:center;gap:5px;min-width:84px;}
     .hw-count-step {width:25px;height:27px;padding:0;border:1px solid #536583;border-radius:6px;background:#263650;color:#fff;font-weight:700;cursor:pointer;}
     .hw-count-step:disabled {opacity:.35;cursor:not-allowed;}
-    .hw-count-value {min-width:35px;text-align:center;color:#fff;font-variant-numeric:tabular-nums;font-size:12px;}
+    .hw-count-input {width:34px;height:27px;box-sizing:border-box;padding:0 2px;border:1px solid #536583;border-radius:5px;background:#101b2d;color:#fff;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;}
+    .hw-count-input:focus {outline:2px solid #e8bd76;outline-offset:1px;}
+    .hw-count-input::-webkit-inner-spin-button,.hw-count-input::-webkit-outer-spin-button {-webkit-appearance:none;margin:0;}
+    .hw-count-input[type=number] {-moz-appearance:textfield;}
+    .hw-count-input:disabled {opacity:.55;}
+    .hw-count-limit {color:#fff;font-size:12px;font-variant-numeric:tabular-nums;}
     .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
 </style>
   <link rel="stylesheet" href="/content-schedule.css">
@@ -653,7 +658,7 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=homework-count-tasks-20261104-v1"></script>
+  <script type="module" src="/app.js?v=homework-count-editable-20261104-v1"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
   <script type="module" src="/inquiries.js"></script>
   <dialog id="hwAddTaskDialog" class="hw-custom-dialog">

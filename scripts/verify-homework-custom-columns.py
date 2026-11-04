@@ -5,7 +5,7 @@ import re
 root = Path.cwd()
 required = {
     'public/index.html': ['id="hwAddTask"', 'id="hwAddTaskDialog"'],
-    'public/app.js': ['AION2_HOMEWORK_TASK_COLUMNS_V1', 'renderHomeworkTaskHeaders', '/api/homework/task-order'],
+    'public/app.js': ['AION2_HOMEWORK_TASK_COLUMNS_V1', 'renderHomeworkTaskHeaders', 'for (const task of taskColumns)', '/api/homework/task-order'],
     'src/index.js': ['AION2_HOMEWORK_CUSTOM_COLUMNS_V1', './homework-custom-api.js'],
     'src/homework-custom-api.js': ['getCustomHomeworkData', 'customHomeworkApi'],
     'migrations/0024_homework_custom_columns.sql': ['homework_custom_tasks', 'homework_custom_progress', 'homework_task_column_orders'],
@@ -28,7 +28,7 @@ html = root / 'public/index.html'
 text = html.read_text('utf-8')
 script = re.search(r'(?P<prefix>src=["\']\/app\.js)(?:\?v=[^"\']*)?(?P<suffix>["\'])',text)
 if script:
-    new = f"{script.group('prefix')}?v=homework-custom-columns-20261104-v2{script.group('suffix')}"
+    new = f"{script.group('prefix')}?v=homework-custom-columns-20261104-v3{script.group('suffix')}"
     if script.group(0) != new:
         html.write_text(text[:script.start()] + new + text[script.end():], 'utf-8')
         print('UPDATED: app.js query string to refresh browser cache')

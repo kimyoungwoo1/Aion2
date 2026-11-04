@@ -36,6 +36,7 @@ INSERT INTO homework_od_balances VALUES(1,300,200,500);
 `);
 db.exec(readFileSync(new URL('../migrations/0017_homework_od_recovery.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0018_homework_od_caps_membership_default.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0024_homework_custom_columns.sql',import.meta.url),'utf8'));
 const token='c'.repeat(64);
 db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(createHash('sha256').update(token).digest('hex'),'슬롱',unix('2027-12-01T00:00:00Z'));
 class Stmt {

@@ -12,11 +12,13 @@ db.exec(`PRAGMA foreign_keys=ON;
  CREATE TABLE homework_progress (week_start TEXT,character_id INTEGER,task_key TEXT,
    completed INTEGER,updated_at INTEGER,PRIMARY KEY(week_start,character_id,task_key));
  CREATE TABLE sanctuary_shared_availability (week_start TEXT);
+ CREATE TABLE sanctuary_shared_schedule_notes (week_start TEXT);
  CREATE TABLE sanctuary_schedules (week_start TEXT);
  INSERT INTO characters VALUES(10,'ownerA','Alt One',2003,'class',5300,900);
  INSERT INTO characters VALUES(11,'ownerA','Alt Two',2003,'class',5200,800);
  INSERT INTO characters VALUES(20,'ownerB','Other',2003,'class',5100,700);`);
 const src = path => readFileSync(new URL(path, import.meta.url),'utf8');
+db.exec(src('../migrations/0022_admin_audit_history.sql'));
 for (const name of [
  '0013_homework_od_amounts.sql','0014_homework_character_order.sql',
  '0015_homework_od_persistent.sql','0017_homework_od_recovery.sql',

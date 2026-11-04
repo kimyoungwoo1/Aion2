@@ -30,6 +30,7 @@ legacy.run('2026-10-29',3,7,9,12);
 db.exec(readFileSync(new URL('../migrations/0015_homework_od_persistent.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0017_homework_od_recovery.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0018_homework_od_caps_membership_default.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0024_homework_custom_columns.sql',import.meta.url),'utf8'));
 assert.equal(db.prepare('SELECT od1 FROM homework_od_balances WHERE character_id=1').get().od1,30);
 assert.equal(db.prepare('SELECT od2 FROM homework_od_balances WHERE character_id=1').get().od2,2000);
 assert.equal(db.prepare('SELECT od1 FROM homework_od_balances WHERE character_id=2').get().od1,840);

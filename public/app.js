@@ -1043,6 +1043,151 @@ async function saveHomeworkCharacterOrder(ids) {
   } finally { homeworkOrderSaving = false; }
 }
 
+
+// AION2_HOMEWORK_TASK_COLUMNS_V1: task column order belongs to the login nickname.
+let homeworkTaskSaving = false;
+let homeworkDraggingTask = null;
+function orderedHomeworkTasks(data) {
+  const builtins = (data?.tasks || []).map(t => ({...t,
+    label:t.key === 'craft' ? '\uC624\uB4DC\uAD6C\uB9E4&\uC81C\uC791' : t.label}));
+  const extras = (data?.customTasks || []);
+  const merged = [...builtins,...extras];
+  const byKey = new Map(merged.map(t => [t.key,t]));
+  const order = Array.isArray(data?.taskOrder) ? data.taskOrder : [];
+  return [...order.map(key => byKey.get(key)).filter(Boolean),
+    ...merged.filter(t => !order.includes(t.key))];
+}
+async function saveHomeworkTaskOrder(keys) {
+  if (!homeworkData || homeworkTaskSaving) return;
+  const old = [...(homeworkData.taskOrder || [])];
+  homeworkTaskSaving = true;
+  homeworkData.taskOrder = [...keys];
+  renderHomework();
+  $('hwMessage').textContent = '\uC219\uC81C \uC5F4 \uC21C\uC11C \uC800\uC7A5 \uC911...';
+  try {
+    const result = await api('/api/homework/task-order','POST',{taskKeys:keys});
+    homeworkData.taskOrder = result.taskOrder;
+    $('hwMessage').textContent = '\uC219\uC81C \uC5F4 \uC21C\uC11C\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4. \uCD08\uAE30\uD654 \uD6C4\uC5D0\uB3C4 \uC720\uC9C0\uB429\uB2C8\uB2E4.';
+  } catch (error) {
+    homeworkData.taskOrder = old;
+    renderHomework();
+    $('hwMessage').textContent = error.message;
+  } finally { homeworkTaskSaving = false; }
+}
+function renderHomeworkTaskHeaders(tasks) {
+  const table = document.querySelector('.homework-table');
+  const head = table?.querySelector('thead tr');
+  if (!head) return;
+  const all = [...head.querySelectorAll(':scope > th')];
+  if (all.length < 8) return;
+  // Keep 7 fixed character/od columns and the last membership column.
+  for (const old of all.slice(7,-1)) old.remove();
+  const membership = all[all.length-1];
+  table.style.minWidth = tasks.length > 8
+    ? `${Math.max(1240,1240 + (tasks.length - 8) * 102)}px` : '';
+  for (const task of tasks) {
+    const th = document.createElement('th');
+    th.className = 'hw-task-column' + (task.custom ? ' hw-task-custom' : '');
+    th.dataset.taskKey = task.key;
+    const handle = document.createElement('span');
+    handle.className = 'hw-task-grip';
+    handle.textContent = '\u283F';
+    handle.draggable = true;
+    handle.tabIndex = 0;
+    handle.setAttribute('role','button');
+    handle.setAttribute('aria-label',`${task.label} \uC219\uC81C \uC5F4 \uC21C\uC11C \uBCC0\uACBD`);
+    handle.title = '\uB4DC\uB798\uADF8\uD558\uAC70\uB098 \uC88C/\uC6B0 \uBC29\uD5A5\uD0A4\uB85C \uC774\uB3D9';
+    const label = document.createElement('span');
+    label.textContent = task.label;
+    label.className = 'hw-task-caption';
+    th.append(handle,label);
+    head.insertBefore(th,membership);
+    handle.addEventListener('dragstart',event => {
+      if (homeworkTaskSaving) { event.preventDefault(); return; }
+      homeworkDraggingTask = task.key;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain',task.key);
+      th.classList.add('hw-task-dragging');
+    });
+    handle.addEventListener('dragend',() => {
+      homeworkDraggingTask = null;
+      head.querySelectorAll('.hw-task-dragging,.hw-task-target').forEach(
+        h => h.classList.remove('hw-task-dragging','hw-task-target'));
+    });
+    th.addEventListener('dragover',event => {
+      if (!homeworkDraggingTask || homeworkTaskSaving) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      head.querySelectorAll('.hw-task-target').forEach(h => h.classList.remove('hw-task-target'));
+      if (homeworkDraggingTask !== task.key) th.classList.add('hw-task-target');
+    });
+    th.addEventListener('drop',event => {
+      if (!homeworkDraggingTask || homeworkTaskSaving) return;
+      event.preventDefault();
+      const dragged = homeworkDraggingTask;
+      homeworkDraggingTask = null;
+      head.querySelectorAll('.hw-task-dragging,.hw-task-target').forEach(
+        h => h.classList.remove('hw-task-dragging','hw-task-target'));
+      if (dragged === task.key) return;
+      const keys = tasks.map(t => t.key).filter(k => k !== dragged);
+      const i = keys.indexOf(task.key);
+      if (i < 0) return;
+      const after = event.clientX > th.getBoundingClientRect().left + th.offsetWidth / 2;
+      keys.splice(i + (after ? 1 : 0),0,dragged);
+      void saveHomeworkTaskOrder(keys);
+    });
+    handle.addEventListener('keydown',event => {
+      if (!['ArrowLeft','ArrowRight'].includes(event.key) || homeworkTaskSaving) return;
+      event.preventDefault();
+      const keys = tasks.map(t => t.key);
+      const i = keys.indexOf(task.key);
+      const target = i + (event.key === 'ArrowLeft' ? -1 : 1);
+      if (target < 0 || target >= keys.length) return;
+      [keys[i],keys[target]] = [keys[target],keys[i]];
+      void saveHomeworkTaskOrder(keys).then(() => {
+        const next = [...head.querySelectorAll('.hw-task-grip')].find(
+          el => el.getAttribute('aria-label')?.startsWith(`${task.label} `));
+        next?.focus();
+      });
+    });
+  }
+}
+
+function setupHomeworkTaskCreator() {
+  const add = $('hwAddTask');
+  const dialog = $('hwAddTaskDialog');
+  const form = $('hwAddTaskForm');
+  const cancel = $('hwAddTaskCancel');
+  const titleInput = $('hwTaskTitle');
+  if (!add || !dialog || !form || !cancel || !titleInput) return;
+  add.addEventListener('click', () => {
+    titleInput.value = '';
+    dialog.showModal();
+    titleInput.focus();
+  });
+  cancel.addEventListener('click', () => dialog.close());
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const title = titleInput.value.trim();
+    if (!title || title.length > 24) {
+      $('hwMessage').textContent = '\uC219\uC81C \uC774\uB984\uC740 1~24\uC790\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694.';
+      return;
+    }
+    add.disabled = true;
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      await api('/api/homework/custom-task','POST',{title});
+      dialog.close();
+      await loadHomework();
+      $('hwMessage').textContent = `${title} \uC219\uC81C\uB97C \uCD94\uAC00\uD588\uC2B5\uB2C8\uB2E4. \uC644\uB8CC \uC0C1\uD0DC\uB294 \uC790\uB3D9 \uCD08\uAE30\uD654\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
+    } catch(error) {
+      $('hwMessage').textContent = error.message;
+    } finally {add.disabled=false;submit.disabled=false;}
+  });
+}
+setupHomeworkTaskCreator();
+
 function resetHomeworkView() {
   homeworkOdLiveUpdaters = [];
   homeworkData = null;
@@ -1060,11 +1205,13 @@ async function loadHomework() {
   renderHomework();
 }
 function renderHomework() {
+  const taskColumns = homeworkData ? orderedHomeworkTasks(homeworkData) : [];
+  if (homeworkData) renderHomeworkTaskHeaders(taskColumns);
   if (!homeworkData) return;
   const rows = homeworkData.characters || [];
   const tasks = (homeworkData.tasks || []).map(task => ({ ...task, label: task.label === '오드구매' ? '오드구매&제작' : task.label }));
-  const completed = rows.reduce((sum, ch) => sum + ch.completed.length, 0);
-  const possible = rows.length * tasks.length;
+  const completed = rows.reduce((sum, ch) => sum + (ch.completed?.length || 0) + (ch.customCompleted?.length || 0), 0);
+  const possible = rows.length * taskColumns.length;
   $('hwCharacterCount').textContent = String(rows.length);
   $('hwCompletedCount').textContent = `${completed} / ${possible}`;
   $('hwCompletedPercent').textContent = `${possible ? Math.round(completed / possible * 100) : 0}%`;
@@ -1080,7 +1227,7 @@ function renderHomework() {
   tbody.replaceChildren();
   if (!rows.length) {
     const row = tbody.insertRow();
-    const cell = row.insertCell(); cell.colSpan = 16;
+    const cell = row.insertCell(); cell.colSpan = 8 + taskColumns.length;
     cell.textContent = '내 캐릭터가 등록되어 있지 않습니다. 캐릭터 관리에서 소유자 닉네임으로 캐릭터를 등록해 주세요.';
   }
   for (const character of rows) {
@@ -1304,10 +1451,12 @@ function renderHomework() {
     });
     refreshOdLive();
     displaySum();
-    for (const task of tasks) {
+    for (const task of taskColumns) {
       const cell = row.insertCell();
       const button = document.createElement('button');
-      const done = character.completed.includes(task.key);
+      const done = task.custom
+        ? (character.customCompleted || []).includes(task.key)
+        : character.completed.includes(task.key);
       button.type = 'button';
       button.className = 'hw-toggle' + (done ? ' done' : '');
       button.textContent = done ? '완료' : '미완료';
@@ -1316,7 +1465,10 @@ function renderHomework() {
         button.disabled = true;
         $('hwMessage').textContent = '저장 중...';
         try {
-          await api('/api/homework','POST', {characterId:character.id,taskKey:task.key,completed:!done});
+          await api(task.custom ? '/api/homework/custom-progress' : '/api/homework',
+            'POST', task.custom
+              ? {characterId:character.id,taskId:task.id,completed:!done}
+              : {characterId:character.id,taskKey:task.key,completed:!done});
           if (activeSection === 'homework') await loadHomework();
           $('hwMessage').textContent = `${character.name} · ${task.label} 저장 완료`;
         } catch(e) { $('hwMessage').textContent = e.message; }

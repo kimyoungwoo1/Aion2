@@ -196,26 +196,53 @@ function setupHomeworkTaskCreator() {
 }
 setupHomeworkTaskCreator();
 '''
-    anchor = 'function resetHomeworkView() {'
-    text = replace_once(text, anchor, new_helper + '\n' + anchor, 'homework UI helper anchor')
-    start = '  const tasks = homeworkData.tasks || [];'
-    text = replace_once(text,start,'  const tasks = orderedHomeworkTasks(homeworkData);\n  renderHomeworkTaskHeaders(tasks);', 'homework tasks line')
-    text = replace_once(text,'const completed = rows.reduce((sum, ch) => sum + ch.completed.length, 0);',
-      'const completed = rows.reduce((sum, ch) => sum + ch.completed.length + (ch.customCompleted || []).length, 0);',
-      'homework completed count')
-    # A dynamic task header has one cell per task, so keep legacy fixed cell count for empty row.
-    text = replace_once(text,'cell.colSpan = 16;', 'cell.colSpan = 8 + tasks.length;', 'empty homework colspan')
-    old = '''      const done = character.completed.includes(task.key);'''
-    text = replace_once(text,old,'''      const done = task.custom
-        ? (character.customCompleted || []).includes(task.key)
-        : character.completed.includes(task.key);''','task done check')
-    old_request = "await api('/api/homework','POST', {characterId:character.id,taskKey:task.key,completed:!done});"
-    new_request = """await api(task.custom ? '/api/homework/custom-progress' : '/api/homework',
-            'POST', task.custom
-              ? {characterId:character.id,taskId:task.id,completed:!done}
-              : {characterId:character.id,taskKey:task.key,completed:!done});"""
-    text = replace_once(text,old_request,new_request,'task completion save')
+    # Do not depend on the exact legacy `const tasks = ...` declaration.
+    # Build a separate ordered set and use it only for the homework columns.
+    render_match = re.search(r'function\s+renderHomework\s*\(\s*\)\s*\{', text)
+    if not render_match: raise RuntimeError('renderHomework() not found')
+    render_end_match = re.search(r"\n\s*(?:// AION2_HOMEWORK_MANUAL_RESET_V1[^\n]*\n\s*)?\$\('hwReset'\)\.addEventListener", text[render_match.end():])
+    if not render_end_match:
+        render_end_match = re.search(r"\n\s*\$\('hwReload'\)\.addEventListener", text[render_match.end():])
+    if not render_end_match:
+        raise RuntimeError('Homework render function end not found; files not changed')
+    render_end = render_match.end() + render_end_match.start()
+    render = text[render_match.start():render_end]
+    if render.count('for (const task of tasks)') != 1:
+        raise RuntimeError('Task button render loop not found, please inspect this app.js version')
+    if not re.search(r'const\s+possible\s*=', render):
+        raise RuntimeError('Task total calculation not found')
+    if not re.search(r'const\s+done\s*=\s*character\.completed\.includes\(\s*task\.key\s*\)\s*;',render):
+        raise RuntimeError('Task completion check not found')
+    save_pattern = (r"await\s+api\(\s*['\"]/api/homework['\"]\s*,\s*['\"]POST['\"]\s*,"
+      r"\s*\{\s*characterId\s*:\s*character\.id\s*,\s*taskKey\s*:\s*task\.key\s*,"
+      r"\s*completed\s*:\s*!done\s*\}\s*\)\s*;")
+    if not re.search(save_pattern,render):
+        raise RuntimeError('Task save call not recognized')
+    # Insert before any declarations, avoiding naming collisions with existing `tasks`.
+    render = re.sub(r'(function\s+renderHomework\s*\(\s*\)\s*\{)',
+      lambda m: m.group(1) + "\n  const taskColumns = homeworkData ? orderedHomeworkTasks(homeworkData) : [];\n  if (homeworkData) renderHomeworkTaskHeaders(taskColumns);",
+      render,count=1)
+    render = re.sub(r'(const\s+possible\s*=)\s*[^;]*;',
+      lambda m: m.group(1) + ' rows.length * taskColumns.length;',render,count=1)
+    render = render.replace('for (const task of tasks)','for (const task of taskColumns)',1)
+    render,n = re.subn(r'sum\s*\+\s*ch\.completed\.length',
+      'sum + (ch.completed?.length || 0) + (ch.customCompleted?.length || 0)',render,count=1)
+    if n == 0:
+        render,n = re.subn(r'sum\s*\+\s*\(ch\.completed\?\.length\s*\|\|\s*0\)',
+          'sum + (ch.completed?.length || 0) + (ch.customCompleted?.length || 0)',render,count=1)
+    if n != 1: raise RuntimeError('Homework completed count not recognized')
+    render = re.sub(r'cell\.colSpan\s*=\s*16\s*;',
+      'cell.colSpan = 8 + taskColumns.length;',render,count=1)
+    render = re.sub(r'const\s+done\s*=\s*character\.completed\.includes\(\s*task\.key\s*\)\s*;',
+      "const done = task.custom\n        ? (character.customCompleted || []).includes(task.key)\n        : character.completed.includes(task.key);",render,count=1)
+    render = re.sub(save_pattern,
+      "await api(task.custom ? '/api/homework/custom-progress' : '/api/homework',\n            'POST', task.custom\n              ? {characterId:character.id,taskId:task.id,completed:!done}\n              : {characterId:character.id,taskKey:task.key,completed:!done});",render,count=1)
+    text = text[:render_match.start()] + render + text[render_end:]
+    anchor = re.search(r'function\s+resetHomeworkView\s*\(\s*\)\s*\{',text)
+    if not anchor: raise RuntimeError('resetHomeworkView() not found')
+    text = text[:anchor.start()] + new_helper + '\n' + text[anchor.start():]
     return text
+
 
 
 def apply_html(text):

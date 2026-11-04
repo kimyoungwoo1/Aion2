@@ -1,41 +1,57 @@
-# 아이온2 숙제 열 정렬 / 추가 기능 - 배포 누락 복구
+# 아이온2 숙제 열 정렬 / 숙제 추가 - 호환성 수정 v3
 
-이 ZIP은 **수정 소스 파일 전체를 덮어쓰는 ZIP이 아닙니다**. 사용자의 현재 `public/app.js`, `public/index.html`, `src/index.js`를 보존하면서 패치 스크립트가 필요한 코드만 추가합니다. 이전 ZIP에서 압축만 해제하고 `wrangler deploy`를 실행하면 화면이 바뀌지 않은 이유를 해결하기 위해 **적용+검사+마이그레이션+배포**를 한 명령으로 묶었습니다.
+이번 파일은 이전에 실패했던 **`Expected one homework tasks line, found 0`** 오류를 해결한 버전입니다.
+`public/app.js`의 기존 `const tasks = ...` 선언문을 정확히 일치시켜 찾는 방식을 제거했습니다.
+현재 숙제 렌더러의 별도 `taskColumns` 변수를 사용하므로 해당 선언문이 변경되어도 적용됩니다.
+
+## 적용
+
+Codespaces 프로젝트 루트 `/workspaces/Aion2`에서 ZIP을 압축 해제한 후:
 
 ```bash
-unzip -o Aion2_Homework_Custom_Columns_Repair.zip
+unzip -o Aion2_Homework_Custom_Columns_Compatible_V3.zip
 bash scripts/install-homework-custom-columns.sh --deploy
 ```
 
-스크립트는 현재 파일을 실제로 고쳤는지 검사하고, `app.js` 캐시 버전 문자열을 갱신하며, 문법/기능 테스트를 수행한 후 **D1 성공 시에만** Worker를 배포합니다. 원격 페이지의 `숙제 추가` 버튼 존재 여부까지 검사합니다. 중간에 실패하면 배포를 진행하지 않습니다.
+이 명령은 실제 `public/index.html`, `public/app.js`, `src/index.js`에 패치를 적용하고,
+문법·DB 테스트, D1 마이그레이션과 Worker 배포를 순서대로 실행합니다.
+배포 전에 먼저 검사만 하려면 `--check-only` 옵션을 사용할 수 있습니다.
 
-패치만 확인하려면:
 ```bash
 bash scripts/install-homework-custom-columns.sh --check-only
 ```
 
-GitHub에서 이전 버전을 자동 배포하지 않도록 확인 후 커밋/푸시합니다:
+**주의**: `--check-only`도 소스 파일은 패치하되 원격 DB나 Worker를 변경하지 않습니다.
+중간 단계에서 오류가 발생하면 배포하지 않습니다.
+
+## GitHub 자동 배포 방지
+
 ```bash
-git add public/index.html public/app.js src/index.js src/homework-custom-api.js \
-  migrations/0024_homework_custom_columns.sql scripts tests README-homework-custom-columns.md
-git commit -m "Install persistent homework columns"
+git add public/app.js public/index.html src/index.js src/homework-custom-api.js \
+  migrations/0024_homework_custom_columns.sql scripts/add-homework-custom-columns.py \
+  scripts/install-homework-custom-columns.sh scripts/verify-homework-custom-columns.py \
+  tests/test-homework-custom-columns.mjs tests/test-homework-custom-live.mjs \
+  tests/test-homework-custom-migration.py README-homework-custom-columns.md
+git commit -m "Fix homework custom tasks patch compatibility"
 git push origin main
 ```
 
-## 실제 반영 여부 확인
+## 기능
+
+- 기존 숙제 기본 순서: 어비스회랑, 각성전, 루드라, 침식, 무스펠, 델트라스, 시련, 오드구매&제작.
+- 헤더의 ⠿ 손잡이로 숙제 열을 이동하고 로그인 닉네임별 D1에 영구 저장.
+- `숙제 추가` 버튼은 `현황 초기화` 왼쪽에 생성.
+- 사용자별 최대 20개 추가 숙제, 추가 직후 오드구매&제작 우측에 배치.
+- 추가 숙제 완료 여부는 수요일 자동 초기화 및 현황 초기화 대상에서 제외.
+- 기존 숙제 완료, 오드1/2 수량, 멤버십, 캐릭터 행 정렬, 성역, 관리자 이력 변경 없음.
+- 공용 코드 로그인은 닉네임만으로 실제 신원을 검증하지 못함.
+
+## 배포 확인
 
 ```bash
 grep -n 'id="hwAddTask"' public/index.html
-curl -fsSL "https://aion2.ksmsy1.workers.dev/?check=$(date +%s)" | grep -o 'id="hwAddTask"'
+curl -fsSL "https://aion2.ksmsy1.workers.dev/?v=$(date +%s)" | grep -o 'id="hwAddTask"'
 ```
 
-위 두 번째 명령에서 버튼 ID가 보이면 운영 서버 HTML까지 적용된 상태입니다. 그런데도 브라우저에서 안 보이면 `Ctrl+Shift+R`로 캐시를 무시하고 새로고침하세요.
-
-## 기능/데이터
-
-- 기본 숙제 8열 순서는 현재 순서 그대로 시작합니다.
-- 각 숙제의 `⠿` 손잡이로 열 위치를 변경하고 **로그인 닉네임별로 D1에 영구 저장**합니다.
-- `숙제 추가` 버튼으로 새 항목을 만들고 오드구매&제작 오른쪽에 배치합니다.
-- 새 숙제의 완료 상태는 수요일 초기화와 `현황 초기화` 모두에서 제외됩니다.
-- 기존 숙제·오드·멤버십·파티·관리자 이력 데이터는 삭제하지 않습니다.
-- 해당 닉네임으로 로그인하면 그 닉네임의 데이터에 접근할 수 있는 기존 공용 로그인 구조는 그대로 유지됩니다.
+브라우저에 이전 JS가 보이면 Ctrl+Shift+R 새로고침을 실행하세요.
+기존 파일을 삭제하거나 `wrangler.jsonc`를 덮어쓰지 않습니다.

@@ -325,7 +325,25 @@
     .homework-table tr.hw-drag-target { outline:2px dashed #e9be78; outline-offset:-2px; background:#263752; }
       /* AION2_OD_COUNTDOWN_SHARED_NOTES_V1 */
     .od1-next-recovery-countdown { display:inline-block; font-variant-numeric:tabular-nums; color:var(--gold); font-weight:700; white-space:nowrap; }
-  </style>
+  
+    /* Task headers are reorderable independently of character rows. */
+    .homework-table th.hw-task-column { min-width:78px; padding:7px 2px; vertical-align:middle; }
+    .hw-task-grip { display:inline-block; cursor:grab; touch-action:none;
+      user-select:none; padding:3px 5px; color:#edc07b; border-radius:5px;
+      font-size:14px; line-height:1; }
+    .hw-task-grip:focus-visible, .hw-task-grip:hover {outline:2px solid #edc07b;}
+    .hw-task-caption { display:block; font-size:11px; white-space:normal; overflow-wrap:anywhere; }
+    .hw-task-dragging {opacity:.5;}
+    .hw-task-target {outline:2px dashed #edc07b; outline-offset:-2px;}
+    .hw-task-custom .hw-task-caption {color:#f0c67d;}
+    .hw-custom-dialog { border:1px solid #536583; border-radius:13px; background:#18243b;
+      color:#fff; padding:22px; min-width:min(400px,90vw); max-width:90vw; }
+    .hw-custom-dialog::backdrop {background:rgba(2,8,18,.75);}
+    .hw-custom-dialog form {display:grid;gap:12px;}
+    .hw-custom-dialog h3 {margin:0;}
+    .hw-custom-dialog input {width:100%; box-sizing:border-box;}
+    .hw-custom-actions {display:flex;gap:10px;justify-content:flex-end;}
+</style>
   <link rel="stylesheet" href="/content-schedule.css">
   <link rel="stylesheet" href="/inquiries.css">
 </head>
@@ -615,7 +633,7 @@
             <div class="stat">완료율<strong id="hwCompletedPercent">0%</strong></div>
           </div>
           <div class="card">
-            <div class="sectionhead"><h2>이번 주 숙제 현황</h2><div class="actions" style="margin-top:0"><!-- AION2_HOMEWORK_MANUAL_RESET_V1 --><button class="danger small" id="hwReset" type="button" title="현재 로그인한 닉네임의 숙제 완료 상태만 초기화합니다">현황 초기화</button> <button class="secondary small" id="hwReload" type="button">새로고침</button></div></div>
+            <div class="sectionhead"><h2>이번 주 숙제 현황</h2><div class="actions" style="margin-top:0"><!-- AION2_HOMEWORK_MANUAL_RESET_V1 --><!-- AION2_HOMEWORK_TASK_COLUMNS_V1 --><button class="secondary small" id="hwAddTask" type="button">&#xC219;&#xC81C; &#xCD94;&#xAC00;</button> <button class="danger small" id="hwReset" type="button" title="현재 로그인한 닉네임의 숙제 완료 상태만 초기화합니다">현황 초기화</button> <button class="secondary small" id="hwReload" type="button">새로고침</button></div></div>
             <p class="muted" id="hwWeekLabel"></p>
             <div class="tablewrap"><table class="homework-table"><thead><tr><th>캐릭터명</th><th>직업</th><th>아이템 레벨</th><th>남툴</th><th title="수기 입력 상한 840 · 일반 회복 상한 560, 멤버십 회복 상한 840">오드1<br><small>840</small></th><th title="수기 입력 상한 없음">오드2<br><small>무제한</small></th><th>오드합</th><th>어비스회랑</th><th>각성전</th><th>루드라</th><th>침식</th><th>무스펠</th><th>델트라스</th><th>시련</th><th title="오드구매&제작">오드구매&제작</th><th title="오드1 자동 회복: 체크 시 멤버십 +15/3시간, 미체크 시 일반 +10/3시간">멤버십</th></tr></thead><tbody id="hwRows"></tbody></table></div>
             <p class="message" id="hwMessage" role="status"></p>
@@ -625,8 +643,21 @@
       </section>
     </section>
   </main>
-  <script type="module" src="/app.js?v=aion2-od-membership-check-20261029&inquiries=20261104"></script>
+  <script type="module" src="/app.js?v=homework-custom-columns-20261104-v3"></script>
   <script type="module" src="/content-schedule-manage.js"></script>
   <script type="module" src="/inquiries.js"></script>
+  <dialog id="hwAddTaskDialog" class="hw-custom-dialog">
+    <form id="hwAddTaskForm">
+      <h3>&#xC219;&#xC81C; &#xCD94;&#xAC00;</h3>
+      <label for="hwTaskTitle">&#xC0C8; &#xC219;&#xC81C; &#xC774;&#xB984;</label>
+      <input id="hwTaskTitle" type="text" maxlength="24" required autocomplete="off"
+             placeholder="&#xC219;&#xC81C; &#xC774;&#xB984; &#xC785;&#xB825;" />
+      <p class="muted">&#xCD94;&#xAC00;&#xD55C; &#xC219;&#xC81C;&#xB294; &#xCD08;&#xAE30;&#xD654;&#xD558;&#xC9C0; &#xC54A;&#xC2B5;&#xB2C8;&#xB2E4;.</p>
+      <div class="hw-custom-actions">
+        <button type="button" class="secondary" id="hwAddTaskCancel">&#xCDE8;&#xC18C;</button>
+        <button type="submit" class="primary">&#xCD94;&#xAC00;</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

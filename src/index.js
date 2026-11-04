@@ -1,3 +1,4 @@
+import { getCustomHomeworkData, customHomeworkApi } from "./homework-custom-api.js";
 import { lookupOfficialCharacter, OfficialAionLookupError } from "./aion-api.js";
 import { handleAdminApi } from "./admin-api.js"; // AION2_ADMIN_AUDIT_V1
 import { withAudit } from "./audit-log.js";
@@ -323,7 +324,7 @@ const HOMEWORK_TASKS = Object.freeze([
   { key: 'muspel', label: '무스펠' },
   { key: 'deltras', label: '델트라스' },
   { key: 'trial', label: '시련' },
-  { key: 'craft', label: '오드구매&제작' }
+  { key: 'craft', label: '\uC624\uB4DC\uAD6C\uB9E4&\uC81C\uC791' }
 ]);
 const HOMEWORK_KEYS = new Set(HOMEWORK_TASKS.map(x => x.key));
 function odResponse(row, now) {
@@ -337,6 +338,13 @@ function odResponse(row, now) {
 // 현재 로그인 세션의 닉네임만 사용한다. 클라이언트가 보내는 닉네임은 신뢰하지 않는다.
 // 주의: 공용 접속 코드 로그인은 닉네임 자체의 소유권을 증명하지 못한다.
 async function homeworkApi(request, env, path, user, now) {
+  // AION2_HOMEWORK_CUSTOM_COLUMNS_V1: separate owner-scoped persistent tasks.
+  if (path === '/api/homework/custom-task' ||
+      path === '/api/homework/custom-progress' ||
+      path === '/api/homework/task-order') {
+    return customHomeworkApi(request,env,path,user.nickname,now);
+  }
+
   const method = request.method;
   const nickname = user.nickname;
 
@@ -381,7 +389,8 @@ async function homeworkApi(request, env, path, user, now) {
         if (Array.isArray(parsed)) order = parsed.filter(Number.isSafeInteger);
       } catch { /* 예전 잘못된 순서 데이터가 있으면 자동 정렬로 대체 */ }
     }
-    return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order});
+    const custom = await getCustomHomeworkData(env,nickname,characters);
+    return json({weekStart:week,tasks:HOMEWORK_TASKS,characters,order,...custom});
   }
 
   // AION2_HOMEWORK_MANUAL_RESET_V1: completed tasks only; other data is untouched.

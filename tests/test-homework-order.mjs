@@ -21,6 +21,7 @@ db.exec(readFileSync(new URL('../migrations/0014_homework_character_order.sql',i
 db.exec(readFileSync(new URL('../migrations/0015_homework_od_persistent.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0017_homework_od_recovery.sql',import.meta.url),'utf8'));
 db.exec(readFileSync(new URL('../migrations/0018_homework_od_caps_membership_default.sql',import.meta.url),'utf8'));
+db.exec(readFileSync(new URL('../migrations/0024_homework_custom_columns.sql',import.meta.url),'utf8'));
 const tokens={슬롱:'a'.repeat(64), MID:'b'.repeat(64)};
 for(const [nick,token] of Object.entries(tokens)) {
  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(createHash('sha256').update(token).digest('hex'), nick, Math.floor(Date.now()/1000)+10000);

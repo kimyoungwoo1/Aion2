@@ -21,9 +21,6 @@ UPDATE homework_custom_tasks
 SET task_type='toggle',max_count=0
 WHERE title='일일 던전';
 
-DELETE FROM homework_custom_count_progress
-WHERE task_id IN (SELECT id FROM homework_custom_tasks WHERE title='일일 던전');
-
 -- Nightmare capacity changes to two. Existing weekly "used count" values are
 -- not meaningful as refill balances, so initialize the new balance to full.
 UPDATE homework_custom_tasks SET max_count=2
@@ -35,6 +32,3 @@ SELECT t.id,c.id,2,CAST((unixepoch()+14400)/43200 AS INTEGER),unixepoch()
 FROM homework_custom_tasks t
 JOIN characters c ON c.owner_name=t.owner_name
 WHERE t.title='악몽' AND t.task_type='count';
-
-DELETE FROM homework_custom_count_progress
-WHERE task_id IN (SELECT id FROM homework_custom_tasks WHERE title='악몽');
